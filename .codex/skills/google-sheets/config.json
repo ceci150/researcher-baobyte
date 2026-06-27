@@ -1,0 +1,15 @@
+{
+    "token_path": "/pfss/mlde/workspaces/mlde_wsp_WuestA/sc82jenu/ossfuse/.env_gsheet_token.json",
+    "default_spreadsheet_id": "1vxdXt2xSAzNtRdT3G9UOajkLffo3pLpYI25tJNcDVOo",
+    "tabs": {
+        "OriginalLLM-UtilityEval": {
+            "comment": "Original LLM Utility Evaluation"
+        },
+        "OriginalLLM-BenignFT": {
+            "comment": "Original LLM Benign Fine-Tuning and Task Evaluation"
+        },
+        "OriginalLLM-HarmfulFT": {
+            "comment": "Original LLM Harmful Fine-Tuning and Task Evaluation"
+        }
+    }
+}
