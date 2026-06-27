@@ -42,6 +42,81 @@ class BashTool(BaseTool):
             "required": ["command"]
         }
 
+    def _build_env(self) -> dict:
+        """Inherit the parent environment plus:
+          1. The LLM credentials configured in settings.json, so subprocess
+             scripts (e.g. OpenAI experiments) can authenticate.
+          2. A per-project virtual environment on PATH, so `python`/`pip`
+             resolve to an isolated, reproducible interpreter for the project.
+        """
+        import os
+        env = os.environ.copy()
+
+        # --- LLM credentials (settings.json is the source of truth) ---
+        try:
+            from config.loader import load_config
+            cfg = load_config()
+            key = cfg.get_api_key()
+            base = cfg.get_api_base()
+            # Override any inherited value: the parent shell may carry a stale
+            # OPENAI_API_KEY, but settings.json is the configured source of truth.
+            if key:
+                env["OPENAI_API_KEY"] = key
+            if base:
+                env["OPENAI_BASE_URL"] = base
+        except Exception:
+            # Never let credential resolution break command execution.
+            pass
+
+        # --- Per-project virtual environment ---
+        venv_bin = self._ensure_project_venv()
+        if venv_bin:
+            env["VIRTUAL_ENV"] = str(venv_bin.parent)
+            env["PATH"] = f"{venv_bin}{os.pathsep}{env.get('PATH', '')}"
+        return env
+
+    def _ensure_project_venv(self):
+        """Lazily create a project-level venv (workspace/{project}/.venv) using
+        uv and seed it with the common scientific deps. Returns the venv's bin
+        directory Path, or None if unavailable.
+
+        The venv lives at the project root (NOT inside a worker overlay) so it
+        is shared across worker sessions and never copied/merged."""
+        import shutil
+        from pathlib import Path as _Path
+        try:
+            project = getattr(self.session, "project", None) if self.session else None
+            project_root = getattr(project, "root", None)
+            if project_root is None:
+                return None
+            venv_dir = _Path(project_root) / ".venv"
+            venv_bin = venv_dir / "bin"
+            marker = venv_dir / ".seeded"
+            if marker.exists() and (venv_bin / "python").exists():
+                return venv_bin
+
+            uv = shutil.which("uv")
+            if not uv:
+                # No uv available — fall back to whatever python is on PATH.
+                return venv_bin if (venv_bin / "python").exists() else None
+
+            import subprocess as _sp
+            if not (venv_bin / "python").exists():
+                _sp.run([uv, "venv", str(venv_dir)], capture_output=True, text=True, timeout=120)
+            # Seed common deps (cached by uv, so this is fast on repeat runs).
+            seed_env = {**__import__("os").environ, "VIRTUAL_ENV": str(venv_dir)}
+            _sp.run(
+                [uv, "pip", "install", "openai", "matplotlib", "numpy"],
+                capture_output=True, text=True, timeout=300, env=seed_env,
+            )
+            try:
+                marker.write_text("seeded\n", encoding="utf-8")
+            except Exception:
+                pass
+            return venv_bin if (venv_bin / "python").exists() else None
+        except Exception:
+            return None
+
     def execute(self, command: str, cwd: Optional[str] = None, **kwargs) -> str:
         """Execute a bash command via VFS."""
         try:
@@ -108,14 +183,18 @@ class BashTool(BaseTool):
             # and prefix logs for visibility.
             # ... (prefixing logic already handled by AgentLoop mostly, but we can add more here)
 
-            # Run command synchronously
+            # Run command synchronously.
+            # Inject the configured LLM credentials so experiment scripts that
+            # call the OpenAI SDK can authenticate (the key lives in
+            # settings.json, not the parent process environment).
             result = subprocess.run(
                 command,
                 shell=True,
                 cwd=str(working_dir),
                 capture_output=True,
                 text=True,
-                timeout=300 # Changed timeout from 60 to 300
+                timeout=300, # Changed timeout from 60 to 300
+                env=self._build_env(),
             )
 
             # Prepare output with sandbox context
