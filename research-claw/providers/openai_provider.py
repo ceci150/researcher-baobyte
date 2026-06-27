@@ -132,6 +132,15 @@ class OpenAIProvider(LLMProvider):
         return any(rm in model_lower for rm in self._REASONING_MODELS)
 
     @staticmethod
+    def _is_openai_next_gen(model: str) -> bool:
+        """Detect OpenAI next-gen models (gpt-5*, o1/o3/o4*) that require
+        `max_completion_tokens` instead of `max_tokens` and only accept the
+        default temperature."""
+        import re
+        m = (model or "").lower()
+        return bool(re.match(r"^(gpt-5|o1|o3|o4)", m))
+
+    @staticmethod
     def _extract_error_text(error: Any) -> str:
         """Extract the most useful error text from OpenAI-compatible exceptions."""
         body = getattr(error, "body", None)
@@ -183,17 +192,25 @@ class OpenAIProvider(LLMProvider):
         # Reasoning models (e.g. step-3.5-flash) auto-adjust output length;
         # passing max_tokens causes context_length_exceeded on StepFun API.
         is_reasoning = self._is_reasoning_model(model)
+        is_next_gen = self._is_openai_next_gen(model)
 
         # ... (setup kwargs)
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
         }
-        if not is_reasoning and max_tokens is not None:
-            # Only pass max_tokens when explicitly set.
-            # When None, let the model use its own default output limit.
-            kwargs["max_tokens"] = max(1, int(max_tokens))
+        # OpenAI next-gen models (gpt-5*, o-series) only accept the default
+        # temperature; passing a custom value is rejected with a 400.
+        if not is_next_gen:
+            kwargs["temperature"] = temperature
+
+        if max_tokens is not None and not is_reasoning:
+            # Only pass an explicit output cap when set. Next-gen models renamed
+            # the parameter to `max_completion_tokens`.
+            if is_next_gen:
+                kwargs["max_completion_tokens"] = max(1, int(max_tokens))
+            else:
+                kwargs["max_tokens"] = max(1, int(max_tokens))
 
         if tools:
             kwargs["tools"] = tools
