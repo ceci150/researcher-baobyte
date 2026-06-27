@@ -1,0 +1,968 @@
+import {
+  ABSTRACT_DRAFT,
+  ABSTRACT_STYLES,
+  CONFERENCES,
+  DIAGNOSIS,
+  EXPERIMENT,
+  ITERATIONS,
+  LITERATURE,
+  MEMORY_NOTIFICATIONS,
+  OPPORTUNITIES,
+  PLATFORMS,
+} from "@/lib/mock-data";
+import { cn } from "@/lib/utils";
+import {
+  Bell,
+  BookOpen,
+  Check,
+  ChevronRight,
+  Download,
+  ExternalLink,
+  FileText,
+  GitBranch,
+  MessageSquare,
+  Send,
+  Smartphone,
+  Sparkle,
+  X,
+} from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
+const bandStyle: Record<string, string> = {
+  "High potential": "bg-foreground text-background",
+  Promising: "border border-border bg-card text-foreground",
+  Niche: "border border-border bg-[var(--color-surface-2)] text-ink-muted",
+  "Low fit": "border border-border bg-card text-ink-muted",
+};
+
+export function LiteratureCard() {
+  const maxCite = Math.max(...LITERATURE.map((p) => p.citations));
+  // why-popular reasoning chips, color-coded
+  const reasonColor = (k: string) =>
+    k === "novelty"
+      ? "var(--stage-2-ring)"
+      : k === "citations"
+        ? "var(--stage-4-ring)"
+        : k === "venue"
+          ? "var(--stage-5-ring)"
+          : k === "recency"
+            ? "var(--stage-3-ring)"
+            : "var(--stage-1-ring)";
+
+  const reasonsFor = (p: (typeof LITERATURE)[number]) => {
+    const r: { k: string; label: string }[] = [];
+    if (p.citations > 500) r.push({ k: "citations", label: `${p.citations.toLocaleString()} cites` });
+    if (p.year >= 2024) r.push({ k: "recency", label: "fresh 2024+" });
+    if (["NeurIPS", "ICML", "ICLR", "CVPR"].includes(p.venue))
+      r.push({ k: "venue", label: `top venue · ${p.venue}` });
+    if (p.relevance >= 0.93) r.push({ k: "novelty", label: "high novelty signal" });
+    r.push({ k: "topic", label: "matches your goal" });
+    return r;
+  };
+
+  return (
+    <Card title="Literature survey" subtitle="184 papers · 4 clusters · why these rose to the top">
+      {/* Bubble landscape — citations (x) vs relevance (y), sized by citations */}
+      <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3">
+        <div className="mb-1.5 flex items-center justify-between text-[10.5px] text-ink-muted">
+          <span>Relevance × impact landscape</span>
+          <span className="flex items-center gap-2">
+            <Legend color="var(--stage-4-ring)" label="impact" />
+            <Legend color="var(--stage-2-ring)" label="novelty" />
+            <Legend color="var(--stage-3-ring)" label="recency" />
+          </span>
+        </div>
+        <svg viewBox="0 0 460 140" className="h-[140px] w-full">
+          {[0.25, 0.5, 0.75, 1].map((g) => (
+            <line key={g} x1={32} x2={448} y1={12 + (1 - g) * 108} y2={12 + (1 - g) * 108} stroke="var(--color-border)" strokeDasharray="2 3" />
+          ))}
+          {LITERATURE.map((p) => {
+            const x = 32 + (p.citations / maxCite) * 410;
+            const y = 12 + (1 - p.relevance) * 108;
+            const r = 6 + (p.citations / maxCite) * 14;
+            const color =
+              p.year >= 2024 ? "var(--stage-3-ring)" : p.relevance >= 0.93 ? "var(--stage-2-ring)" : "var(--stage-4-ring)";
+            return (
+              <g key={p.title}>
+                <circle cx={x} cy={y} r={r} fill={color} fillOpacity={0.25} stroke={color} strokeWidth={1.5} />
+                <text x={x} y={y + 3} textAnchor="middle" fontSize="8.5" fill="var(--color-ink)" fontWeight={600}>
+                  {p.venue}
+                </text>
+              </g>
+            );
+          })}
+          <text x={32} y={134} fontSize="8.5" fill="var(--color-ink-muted)">low cites</text>
+          <text x={448} y={134} textAnchor="end" fontSize="8.5" fill="var(--color-ink-muted)">high cites</text>
+          <text x={4} y={16} fontSize="8.5" fill="var(--color-ink-muted)">rel↑</text>
+        </svg>
+      </div>
+
+      <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+        {LITERATURE.map((p) => (
+          <div
+            key={p.title}
+            className="rounded-lg border border-border bg-[var(--color-surface)] p-3"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-[12.5px] font-medium leading-snug text-foreground">
+                {p.title}
+              </div>
+              <span className="shrink-0 rounded-md border border-border bg-card px-1.5 py-0.5 text-[10.5px] text-ink-muted">
+                {p.venue} {p.year}
+              </span>
+            </div>
+            <div className="mt-1 text-[11.5px] text-ink-muted">{p.contribution}</div>
+            <div className="mt-1.5 text-[10.5px] uppercase tracking-wider text-ink-muted">why popular</div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {reasonsFor(p).map((r) => (
+                <span
+                  key={r.k}
+                  className="rounded-full px-1.5 py-0.5 text-[10px] font-medium"
+                  style={{
+                    background: `color-mix(in oklab, ${reasonColor(r.k)} 18%, transparent)`,
+                    color: reasonColor(r.k),
+                  }}
+                >
+                  {r.label}
+                </span>
+              ))}
+            </div>
+            <div className="mt-1.5 flex items-center justify-between text-[10.5px] text-ink-muted">
+              <span>{p.why}</span>
+              <span className="tabular-nums">rel {(p.relevance * 100).toFixed(0)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="inline-block h-2 w-2 rounded-full" style={{ background: color }} />
+      {label}
+    </span>
+  );
+}
+
+export function OpportunitiesCard({
+  selected,
+  onSelect,
+}: {
+  selected?: string;
+  onSelect?: (id: string) => void;
+}) {
+  return (
+    <Card
+      title="Emerging research opportunities"
+      subtitle="Ranked by novelty, feasibility, citation momentum, and strategic fit"
+    >
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full text-[11.5px]">
+          <thead className="bg-[var(--color-surface-2)] text-ink-muted">
+            <tr className="text-left">
+              <th className="px-3 py-2 font-medium">Direction</th>
+              <th className="px-2 py-2 font-medium">Band</th>
+              <th className="px-2 py-2 text-right font-medium">Nov.</th>
+              <th className="px-2 py-2 text-right font-medium">Feas.</th>
+              <th className="px-2 py-2 text-right font-medium">Mom.</th>
+              <th className="px-2 py-2 text-right font-medium">Fit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {OPPORTUNITIES.map((o) => (
+              <tr
+                key={o.id}
+                onClick={() => onSelect?.(o.id)}
+                className={cn(
+                  "cursor-pointer border-t border-border hover:bg-[var(--color-surface)]",
+                  selected === o.id && "bg-[var(--color-surface)]",
+                )}
+              >
+                <td className="px-3 py-2">
+                  <div className="font-medium text-foreground">{o.title}</div>
+                  <div className="text-[10.5px] text-ink-muted">{o.question}</div>
+                </td>
+                <td className="px-2 py-2">
+                  <span className={cn("rounded-full px-2 py-0.5 text-[10px]", bandStyle[o.band])}>
+                    {o.band}
+                  </span>
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums">{o.novelty}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{o.feasibility}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{o.momentum}</td>
+                <td className="px-2 py-2 text-right tabular-nums">{o.fit}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1">
+        {["arXiv", "Semantic Scholar", "Papers with Code"].map((s) => (
+          <SourceChip key={s}>{s}</SourceChip>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+export function ApprovalOpportunitiesCard({
+  onApprove,
+  approved,
+}: {
+  onApprove: (id: string) => void;
+  approved?: string;
+}) {
+  const [pick, setPick] = useState("o1");
+  if (approved) {
+    const o = OPPORTUNITIES.find((x) => x.id === approved)!;
+    return (
+      <Card title="Human approval" subtitle="Direction committed">
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-[var(--color-surface)] p-3">
+          <Check className="mt-0.5 h-3.5 w-3.5 text-[var(--color-success)]" />
+          <div className="text-[12.5px]">
+            <div className="font-medium text-foreground">{o.title}</div>
+            <div className="text-[11.5px] text-ink-muted">{o.contribution}</div>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <Card title="Approval gate" subtitle="Pick a direction to continue">
+      <div className="space-y-1.5">
+        {OPPORTUNITIES.map((o) => (
+          <label
+            key={o.id}
+            className={cn(
+              "flex cursor-pointer items-start gap-2 rounded-lg border p-2.5 transition-colors",
+              pick === o.id ? "border-foreground bg-[var(--color-surface)]" : "border-border bg-card hover:bg-[var(--color-surface)]",
+            )}
+          >
+            <input
+              type="radio"
+              checked={pick === o.id}
+              onChange={() => setPick(o.id)}
+              className="mt-1 h-3 w-3 accent-foreground"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[12.5px] font-medium">{o.title}</span>
+                <span className={cn("rounded-full px-2 py-0.5 text-[10px]", bandStyle[o.band])}>
+                  {o.band}
+                </span>
+              </div>
+              <div className="text-[11px] text-ink-muted">{o.whyNow}</div>
+            </div>
+          </label>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <button
+          onClick={() => {
+            toast.success("Direction approved — drafting experiment plan.");
+            onApprove(pick);
+          }}
+          className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
+        >
+          Accept & continue
+        </button>
+        <button
+          onClick={() => toast("Revision requested — re-ranking opportunities.")}
+          className="rounded-md border border-border bg-card px-3 py-1.5 text-[12px] hover:bg-[var(--color-surface)]"
+        >
+          Ask for revision
+        </button>
+        <button
+          onClick={() => toast("Opened discussion thread with agent.")}
+          className="rounded-md border border-border bg-card px-3 py-1.5 text-[12px] hover:bg-[var(--color-surface)]"
+        >
+          Discuss with agent
+        </button>
+        <button
+          onClick={() => toast("Dismissed.")}
+          className="ml-auto rounded-md px-2 py-1.5 text-[12px] text-ink-muted hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+const DESIGN_VARIANTS = [
+  {
+    id: "A",
+    name: "Lean: single dataset",
+    desc: "Waterbirds only · λ=0.3 · 1 seed",
+    cost: 8,
+    risk: 38,
+    impact: 52,
+    time: "4 days",
+    pick: false,
+  },
+  {
+    id: "B",
+    name: "Balanced: 3 datasets + ablation",
+    desc: "Waterbirds + CUB-Parts + ImageNet-XAI · λ sweep · 3 seeds",
+    cost: 36,
+    risk: 18,
+    impact: 84,
+    time: "2 weeks",
+    pick: true,
+  },
+  {
+    id: "C",
+    name: "Ambitious: + human study",
+    desc: "All 3 datasets + radiologist preference study (n=40)",
+    cost: 64,
+    risk: 46,
+    impact: 92,
+    time: "5 weeks",
+    pick: false,
+  },
+];
+
+const RISKS = [
+  { label: "Distribution-shift datasets too narrow", severity: "med", mitigation: "Add CelebA-Bias as robustness probe." },
+  { label: "λ tuning explodes compute budget", severity: "low", mitigation: "Stop sweep early on plateau (patience=3)." },
+  { label: "Reviewer pushback on faithfulness metric", severity: "high", mitigation: "Pre-register protocol + release evaluator code." },
+  { label: "Reproducibility gap vs. baseline CBM", severity: "med", mitigation: "Pin seeds + Docker image at submission." },
+];
+
+const sevColor = (s: string) =>
+  s === "high"
+    ? "var(--stage-4-ring)"
+    : s === "med"
+      ? "var(--stage-0-ring)"
+      : "var(--stage-3-ring)";
+
+export function ExperimentCard() {
+  const [pick, setPick] = useState("B");
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Card
+      title="Experiment plan"
+      subtitle="Faithful-CBM under distribution shift"
+      headerRight={
+        <button
+          onClick={() => setOpen(true)}
+          className="rounded-md border border-border bg-card px-2 py-1 text-[10.5px] hover:bg-[var(--color-surface)]"
+        >
+          ↗ Open research timeline
+        </button>
+      }
+    >
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <Field label="Hypothesis" value={EXPERIMENT.hypothesis} />
+        <Field label="Method" value={EXPERIMENT.method} />
+        <Field label="Variables" value={EXPERIMENT.variables.join(" · ")} />
+        <Field label="Dataset" value={EXPERIMENT.dataset} />
+        <Field label="Baseline" value={EXPERIMENT.baseline} />
+        <Field label="Metric" value={EXPERIMENT.metric} />
+        <Field label="Contribution" value={EXPERIMENT.contribution} />
+        <Field label="Resources" value={EXPERIMENT.resources} />
+      </div>
+
+      {/* Design variants — comparison */}
+      <div className="mt-4">
+        <div className="mb-1.5 flex items-center justify-between">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+            Iteration suggestions · 3 design variants
+          </div>
+          <span className="text-[10.5px] text-ink-muted">click to commit</span>
+        </div>
+        <div className="grid grid-cols-1 gap-1.5 md:grid-cols-3">
+          {DESIGN_VARIANTS.map((v) => {
+            const selected = pick === v.id;
+            return (
+              <button
+                key={v.id}
+                onClick={() => {
+                  setPick(v.id);
+                  toast.success(`Design ${v.id} selected — agent will iterate accordingly.`);
+                }}
+                className={cn(
+                  "group relative rounded-lg border p-2.5 text-left transition-colors",
+                  selected
+                    ? "border-foreground bg-[var(--color-surface)]"
+                    : "border-border bg-card hover:bg-[var(--color-surface)]",
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span
+                    className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                    style={{
+                      background: `color-mix(in oklab, var(--stage-2-ring) 18%, transparent)`,
+                      color: "var(--stage-2-ink)",
+                    }}
+                  >
+                    Variant {v.id}
+                  </span>
+                  {v.pick && (
+                    <span className="text-[9.5px] text-[var(--color-success)] font-medium">
+                      AI recommends
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 text-[12px] font-medium">{v.name}</div>
+                <div className="text-[10.5px] text-ink-muted">{v.desc}</div>
+                {/* mini bars */}
+                <div className="mt-2 space-y-1">
+                  <MiniBar label="impact" v={v.impact} color="var(--stage-3-ring)" />
+                  <MiniBar label="risk" v={v.risk} color="var(--stage-4-ring)" />
+                  <MiniBar label="cost" v={v.cost} color="var(--stage-0-ring)" />
+                </div>
+                <div className="mt-1.5 text-[10px] text-ink-muted">~{v.time}</div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Risk analysis */}
+      <div className="mt-4">
+        <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+          Risk analysis
+        </div>
+        <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
+          {RISKS.map((r) => (
+            <div
+              key={r.label}
+              className="rounded-lg border p-2.5"
+              style={{
+                background: `color-mix(in oklab, ${sevColor(r.severity)} 9%, var(--color-card))`,
+                borderColor: `color-mix(in oklab, ${sevColor(r.severity)} 35%, transparent)`,
+              }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-[12px] font-medium">{r.label}</span>
+                <span
+                  className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                  style={{
+                    background: `color-mix(in oklab, ${sevColor(r.severity)} 22%, transparent)`,
+                    color: sevColor(r.severity),
+                  }}
+                >
+                  {r.severity}
+                </span>
+              </div>
+              <div className="mt-1 text-[10.5px] text-ink-muted">
+                <span className="font-medium text-foreground">Mitigate:</span> {r.mitigation}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="mb-1.5 text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+          Situation diagnosis
+        </div>
+        <div className="grid grid-cols-2 gap-1.5 md:grid-cols-3">
+          {DIAGNOSIS.map((d) => (
+            <div
+              key={d.label}
+              className="rounded-lg border border-border bg-[var(--color-surface)] p-2.5"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11.5px] font-medium">{d.label}</span>
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 py-0.5 text-[10px]",
+                    d.status === "OK"
+                      ? "bg-[var(--color-surface-2)] text-foreground"
+                      : "border border-border text-foreground",
+                  )}
+                >
+                  {d.status}
+                </span>
+              </div>
+              <div className="mt-1 text-[11px] leading-snug text-ink-muted">{d.note}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <ResearchTimelineDialog open={open} onClose={() => setOpen(false)} />
+    </Card>
+  );
+}
+
+function MiniBar({ label, v, color }: { label: string; v: number; color: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="w-9 text-[9px] uppercase tracking-wider text-ink-muted">{label}</span>
+      <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-2)]">
+        <div className="h-full rounded-full" style={{ width: `${v}%`, background: color }} />
+      </div>
+      <span className="w-6 text-right text-[9.5px] tabular-nums text-ink-muted">{v}</span>
+    </div>
+  );
+}
+
+function ResearchTimelineDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  const milestones = [
+    { t: "Day 0", stage: 0, title: "Goal parsed", note: "XAI-vision objective committed" },
+    { t: "Day 1", stage: 1, title: "Survey complete", note: "184 → 4 anchor papers" },
+    { t: "Day 2", stage: 0, title: "Opportunity locked", note: "Evaluation-first benchmark" },
+    { t: "Day 3", stage: 2, title: "Plan v1 + risks", note: "3 design variants compared" },
+    { t: "Day 5", stage: 3, title: "Exp 2 → AI feedback", note: "λ raised to 0.6" },
+    { t: "Day 7", stage: 3, title: "Exp 4 → human revision", note: "Faith@K 0.74" },
+    { t: "Day 9", stage: 4, title: "Abstract v1 drafted", note: "178 words · concise" },
+    { t: "Day 10", stage: 5, title: "ICLR'25 packaged", note: "OpenReview + Overleaf ready" },
+  ];
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-6" onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-3xl rounded-xl border border-border bg-card p-5 shadow-2xl"
+      >
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-[14px] font-semibold">Research timeline · Faithful-CBM</div>
+            <div className="text-[11.5px] text-ink-muted">Live evolution of the project, stage by stage</div>
+          </div>
+          <button onClick={onClose} className="rounded-md p-1 text-ink-muted hover:bg-[var(--color-surface)]">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Horizontal timeline */}
+        <div className="relative mt-5 overflow-x-auto scrollbar-thin pb-2">
+          <div className="relative flex min-w-[720px] items-stretch gap-3">
+            <div className="absolute left-0 right-0 top-[18px] h-px bg-border" />
+            {milestones.map((m, i) => (
+              <div key={i} className="relative flex-1 min-w-[120px]">
+                <div className="relative z-10 grid h-9 w-9 place-items-center rounded-full border-2 bg-card"
+                  style={{ borderColor: `var(--stage-${m.stage}-ring)` }}>
+                  <span className="text-[10px] font-semibold" style={{ color: `var(--stage-${m.stage}-ink)` }}>
+                    {i + 1}
+                  </span>
+                </div>
+                <div
+                  className="mt-2 rounded-lg border p-2"
+                  style={{
+                    background: `var(--stage-${m.stage}-bg)`,
+                    borderColor: `color-mix(in oklab, var(--stage-${m.stage}-ring) 30%, transparent)`,
+                  }}
+                >
+                  <div className="text-[10px] uppercase tracking-wider" style={{ color: `var(--stage-${m.stage}-ink)` }}>
+                    {m.t}
+                  </div>
+                  <div className="mt-0.5 text-[11.5px] font-medium leading-snug">{m.title}</div>
+                  <div className="text-[10.5px] text-ink-muted">{m.note}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Mini progress curve */}
+        <div className="mt-4 rounded-lg border border-border bg-[var(--color-surface)] p-3">
+          <div className="mb-1 text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+            Objective progress over iterations
+          </div>
+          <svg viewBox="0 0 600 110" className="h-[110px] w-full">
+            <defs>
+              <linearGradient id="prog" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor="var(--stage-3-ring)" stopOpacity="0.45" />
+                <stop offset="100%" stopColor="var(--stage-3-ring)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            {ITERATIONS.map((p, i) => {
+              const x = 30 + (i / (ITERATIONS.length - 1)) * 540;
+              const y = 95 - p.y * 80;
+              const nx = i < ITERATIONS.length - 1 ? 30 + ((i + 1) / (ITERATIONS.length - 1)) * 540 : x;
+              const ny = i < ITERATIONS.length - 1 ? 95 - ITERATIONS[i + 1].y * 80 : y;
+              return (
+                <g key={i}>
+                  {i < ITERATIONS.length - 1 && (
+                    <line x1={x} y1={y} x2={nx} y2={ny} stroke="var(--stage-3-ring)" strokeWidth={2} />
+                  )}
+                  <circle cx={x} cy={y} r={5} fill="var(--stage-3-ring)" />
+                  <text x={x} y={y - 8} textAnchor="middle" fontSize="9.5" fill="var(--color-ink)">{p.label}</text>
+                  <text x={x} y={108} textAnchor="middle" fontSize="9" fill="var(--color-ink-muted)">{p.note}</text>
+                </g>
+              );
+            })}
+            <path
+              d={`M 30 95 ${ITERATIONS.map((p, i) => `L ${30 + (i / (ITERATIONS.length - 1)) * 540} ${95 - p.y * 80}`).join(" ")} L 570 95 Z`}
+              fill="url(#prog)"
+            />
+          </svg>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+export function IterationCard() {
+  const w = 460;
+  const h = 160;
+  const padL = 32;
+  const padR = 12;
+  const padT = 12;
+  const padB = 24;
+  const xs = ITERATIONS.map((p) => p.x);
+  const xMin = Math.min(...xs);
+  const xMax = Math.max(...xs);
+  const yMin = 0;
+  const yMax = 1;
+  const sx = (x: number) => padL + ((x - xMin) / (xMax - xMin)) * (w - padL - padR);
+  const sy = (y: number) => padT + (1 - (y - yMin) / (yMax - yMin)) * (h - padT - padB);
+  const path = ITERATIONS.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.x)},${sy(p.y)}`).join(" ");
+  const targetY = sy(0.7);
+
+  return (
+    <Card
+      title="AutoResearch progress"
+      subtitle="Iterations toward research objective"
+      headerRight={
+        <span className="rounded-full bg-foreground px-2 py-0.5 text-[10.5px] font-medium text-background">
+          objective progress +34%
+        </span>
+      }
+    >
+      <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3">
+        <svg viewBox={`0 0 ${w} ${h}`} className="h-[160px] w-full">
+          {[0, 0.25, 0.5, 0.75, 1].map((g) => (
+            <line
+              key={g}
+              x1={padL}
+              x2={w - padR}
+              y1={sy(g)}
+              y2={sy(g)}
+              stroke="var(--color-border)"
+              strokeDasharray={g === 0 ? "" : "2 3"}
+            />
+          ))}
+          <line
+            x1={padL}
+            x2={w - padR}
+            y1={targetY}
+            y2={targetY}
+            stroke="var(--color-foreground)"
+            strokeDasharray="4 3"
+            opacity="0.5"
+          />
+          <text x={w - padR} y={targetY - 3} textAnchor="end" fontSize="9" fill="var(--color-ink-muted)">
+            target 0.70
+          </text>
+          <path d={path} fill="none" stroke="var(--color-foreground)" strokeWidth="1.5" />
+          {ITERATIONS.map((p) => (
+            <g key={p.label}>
+              <circle cx={sx(p.x)} cy={sy(p.y)} r="3.5" fill="var(--color-foreground)" />
+              <text
+                x={sx(p.x)}
+                y={h - 8}
+                textAnchor="middle"
+                fontSize="9.5"
+                fill="var(--color-ink-muted)"
+              >
+                {p.label}
+              </text>
+            </g>
+          ))}
+          {[0, 0.5, 1].map((g) => (
+            <text
+              key={g}
+              x={padL - 4}
+              y={sy(g) + 3}
+              textAnchor="end"
+              fontSize="9"
+              fill="var(--color-ink-muted)"
+            >
+              {g.toFixed(1)}
+            </text>
+          ))}
+        </svg>
+      </div>
+
+      <div className="mt-3 space-y-1.5">
+        <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+          AI feedback on Version 1
+        </div>
+        <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3 text-[12px]">
+          <div className="text-foreground">
+            Faithfulness loss weight is too low; perturbation schedule clips at shift severity 0.4.
+          </div>
+          <div className="mt-1 text-[11px] text-ink-muted">
+            Suggested change: raise λ to 0.6 and extend schedule to 0.7 · expected Faithfulness@K +0.12 · confidence 0.78
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <Btn primary onClick={() => toast.success("Applied: λ=0.6, schedule→0.7")}>Accept</Btn>
+            <Btn onClick={() => toast("Rejected AI suggestion.")}>Reject</Btn>
+            <Btn onClick={() => toast("Asked agent for revised suggestion.")}>Ask for revision</Btn>
+            <Btn onClick={() => toast("Opened discussion thread.")}>
+              <MessageSquare className="h-3 w-3" /> Discuss
+            </Btn>
+          </div>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export function AbstractCard() {
+  const [style, setStyle] = useState("Concise conference");
+  const [exported, setExported] = useState<string | null>(null);
+
+  return (
+    <Card title="Writing studio · abstract" subtitle="Draft from notes + experiment results">
+      <div className="mb-2 flex flex-wrap gap-1">
+        {ABSTRACT_STYLES.map((s) => (
+          <button
+            key={s}
+            onClick={() => setStyle(s)}
+            className={cn(
+              "rounded-full border px-2.5 py-0.5 text-[11px] transition-colors",
+              style === s
+                ? "border-foreground bg-foreground text-background"
+                : "border-border bg-card text-ink-muted hover:text-foreground",
+            )}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      <div className="rounded-lg border border-border bg-[var(--color-surface)]">
+        <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] text-ink-muted">
+          <span>Abstract · v1 · {style}</span>
+          <span>178 words</span>
+        </div>
+        <div className="space-y-2 p-3 text-[12.5px] leading-relaxed text-foreground">
+          <p className="rounded border border-transparent p-1.5 hover:border-border">
+            {ABSTRACT_DRAFT}
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {["Approve paragraph", "Rewrite more academic", "Make clearer", "Add stronger hook", "Shorten"].map(
+              (a) => (
+                <Btn key={a} onClick={() => toast(`${a} · applied to paragraph`)}>{a}</Btn>
+              ),
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        <Btn primary onClick={() => setExported("PDF prepared · 1 page · ready to download.")}>
+          <Download className="h-3 w-3" /> Export PDF
+        </Btn>
+        <Btn onClick={() => setExported("Overleaf handoff prepared · open in Overleaf.")}>
+          <ExternalLink className="h-3 w-3" /> Open in Overleaf
+        </Btn>
+        <Btn onClick={() => setExported("LaTeX source copied to clipboard.")}>
+          <FileText className="h-3 w-3" /> LaTeX source
+        </Btn>
+      </div>
+      {exported && (
+        <div className="mt-2 rounded-md border border-border bg-[var(--color-surface)] px-2.5 py-1.5 text-[11.5px] text-ink-muted">
+          <Check className="mr-1 inline h-3 w-3 text-[var(--color-success)]" />
+          {exported}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+export function PublishCard() {
+  return (
+    <Card title="Publish & influence" subtitle="Research launchpad">
+      <div className="grid grid-cols-2 gap-1.5 md:grid-cols-5">
+        {PLATFORMS.map((p) => (
+          <div
+            key={p.name}
+            className="rounded-lg border border-border bg-[var(--color-surface)] p-2.5"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-[12px] font-medium">{p.name}</span>
+              <GitBranch className="h-3 w-3 text-ink-muted" />
+            </div>
+            <div className="mt-1 text-[10.5px] leading-snug text-ink-muted">{p.action}</div>
+            <button
+              onClick={() => toast.success(`${p.name} · ${p.action} — handoff prepared`)}
+              className="mt-2 inline-flex items-center gap-1 text-[10.5px] text-foreground hover:underline"
+            >
+              Prepare <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+export function ConferencesCard() {
+  return (
+    <Card title="Incoming conferences" subtitle="Matched against your draft">
+      <div className="space-y-2">
+        {CONFERENCES.map((c) => (
+          <div key={c.name} className="rounded-lg border border-border bg-[var(--color-surface)] p-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-[13px] font-medium">{c.name}</div>
+                <div className="text-[11px] text-ink-muted">{c.format} · {c.next}</div>
+              </div>
+              <div className="flex items-center gap-2 text-[11px]">
+                <span className="tabular-nums text-ink-muted">fit {c.fit}</span>
+                <a
+                  href={c.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-foreground hover:underline"
+                >
+                  site <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </div>
+            <div className="mt-2 grid grid-cols-5 gap-1 text-[10.5px]">
+              {[
+                ["Abstract", c.abstract],
+                ["Full paper", c.full],
+                ["Notify", c.notify],
+                ["Camera ready", c.cameraReady],
+                ["Submission", c.deadline],
+              ].map(([k, v]) => (
+                <div key={k} className="rounded border border-border bg-card px-1.5 py-1">
+                  <div className="text-ink-muted">{k}</div>
+                  <div className="tabular-nums text-foreground">{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+export function MemoryCard() {
+  const [sent, setSent] = useState(false);
+  return (
+    <Card title="Memory & Growing" subtitle="Researcher signals queued for you">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_240px]">
+        <div className="space-y-1.5">
+          {MEMORY_NOTIFICATIONS.map((n) => (
+            <div
+              key={n.id}
+              className="flex items-start gap-2 rounded-lg border border-border bg-[var(--color-surface)] px-3 py-2"
+            >
+              <Bell className="mt-0.5 h-3.5 w-3.5 text-ink-muted" />
+              <div className="text-[12px] leading-snug">{n.text}</div>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-xl border border-border bg-[var(--color-surface)] p-3">
+          <div className="mx-auto max-w-[180px] rounded-2xl border border-border bg-card p-3 shadow-sm">
+            <div className="flex items-center gap-1.5 text-[10px] text-ink-muted">
+              <Sparkle className="h-3 w-3" /> Research Compass
+            </div>
+            <div className="mt-1 text-[11px] font-medium">Weekly research digest</div>
+            <div className="mt-0.5 text-[10.5px] leading-snug text-ink-muted">
+              5 signals waiting. Tap to review.
+            </div>
+          </div>
+          <button
+            onClick={() => setSent(true)}
+            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
+          >
+            <Smartphone className="h-3 w-3" /> Send to phone
+          </button>
+          {sent && (
+            <div className="mt-1.5 text-center text-[10.5px] text-[var(--color-success)]">
+              <Check className="mr-1 inline h-3 w-3" />
+              Reminder sent to mobile.
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/* ---------- shared primitives ---------- */
+
+function Card({
+  title,
+  subtitle,
+  headerRight,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  headerRight?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="mb-2.5 flex items-start justify-between gap-2">
+        <div>
+          <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground">
+            <BookOpen className="h-3 w-3 text-ink-muted" />
+            {title}
+          </div>
+          {subtitle && <div className="text-[11px] text-ink-muted">{subtitle}</div>}
+        </div>
+        {headerRight}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-[var(--color-surface)] p-2.5">
+      <div className="text-[10.5px] font-medium uppercase tracking-wider text-ink-muted">
+        {label}
+      </div>
+      <div className="mt-0.5 text-[12px] leading-snug text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function SourceChip({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[10.5px] text-ink-muted">
+      <span className="h-1 w-1 rounded-full bg-ink-muted" />
+      {children}
+    </span>
+  );
+}
+
+function Btn({
+  children,
+  primary,
+  onClick,
+}: {
+  children: React.ReactNode;
+  primary?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors",
+        primary
+          ? "bg-foreground text-background hover:opacity-90"
+          : "border border-border bg-card text-foreground hover:bg-[var(--color-surface)]",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+export { Card as OutputCard };
+
+/* Re-export Send icon use to silence unused import if any */
+export const _icons = { Send };
