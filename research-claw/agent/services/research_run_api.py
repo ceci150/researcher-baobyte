@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from agent.tools.arxiv_search import ArxivSearchTool
+from providers.proxy import DynamicProviderProxy
 
 
 research_run_router = APIRouter()
@@ -409,6 +410,100 @@ def format_duration(ms: int) -> str:
     return f"{seconds // 60}m {seconds % 60:02d}s"
 
 
+def extract_json_object(text: str) -> Dict[str, Any]:
+    try:
+        parsed = json.loads(text)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        pass
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if not match:
+        return {}
+    try:
+        parsed = json.loads(match.group(0))
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def format_survey_summary(survey: Dict[str, Any]) -> str:
+    concepts = survey.get("concepts") or []
+    methods = survey.get("methods") or []
+    metrics = survey.get("metrics") or []
+    parts = []
+    if concepts:
+        parts.append(f"concepts: {', '.join(map(str, concepts[:3]))}")
+    if methods:
+        parts.append(f"methods: {', '.join(map(str, methods[:2]))}")
+    if metrics:
+        parts.append(f"metrics: {', '.join(map(str, metrics[:2]))}")
+    return "Extracted " + "; ".join(parts) + "." if parts else "Extracted survey concepts from selected references."
+
+
+def fallback_survey(task: str, prepare: Dict[str, Any]) -> Dict[str, Any]:
+    tokens = tokenize_research_text(task)
+    concepts = [token for token in tokens if token in {"explainable", "interpretability", "vision", "faithfulness", "concept", "bottleneck"}]
+    if not concepts:
+        concepts = tokens[:4]
+    return {
+        "concepts": list(dict.fromkeys(concepts))[:5],
+        "methods": ["literature-driven concept extraction"],
+        "datasets": [],
+        "metrics": ["relevance to research goal"],
+        "open_questions": ["LLM survey extraction unavailable; inspect selected references manually."],
+        "rationale": "Fallback survey generated from task keywords and Prepare Agent sources.",
+        "sources_used": prepare.get("citations", []),
+    }
+
+
+async def run_survey_agent(task: str, prepare: Dict[str, Any]) -> Dict[str, Any]:
+    references = prepare.get("result", "")
+    prompt = f"""
+You are Survey Agent inside an AI research framework.
+Input research task:
+{task}
+
+Prepare Agent selected these arXiv reference candidates:
+{references[:6000]}
+
+Return ONLY compact JSON with keys:
+concepts: string[],
+methods: string[],
+datasets: string[],
+metrics: string[],
+open_questions: string[],
+rationale: string,
+sources_used: string[].
+Focus on atomic concepts and experiment-relevant signals. Do not invent paper titles.
+"""
+    started = time.perf_counter()
+    provider = DynamicProviderProxy()
+    response = await provider.chat(
+        messages=[
+            {"role": "system", "content": "Return valid JSON only. Be concise and technical."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=900,
+    )
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if response.finish_reason == "error" or not response.content:
+        survey = fallback_survey(task, prepare)
+        survey["_raw"] = response.content or "No LLM response"
+        survey["_status"] = "fallback"
+    else:
+        survey = extract_json_object(response.content)
+        if not survey:
+            survey = fallback_survey(task, prepare)
+            survey["_raw"] = response.content
+            survey["_status"] = "fallback"
+        else:
+            survey["_raw"] = response.content
+            survey["_status"] = "llm"
+    survey["elapsedMs"] = elapsed_ms
+    return survey
+
+
 async def emit_goal_accept_steps(run: ResearchRun) -> None:
     query = infer_prepare_query(run.task)
     queries = build_prepare_queries(run.task)
@@ -469,19 +564,60 @@ async def emit_goal_accept_steps(run: ResearchRun) -> None:
         },
     )
 
-    for step in build_planning_steps()[1:]:
-        delay = step.pop("delayMs", 0)
-        if delay:
-            await asyncio.sleep(delay)
-        await store.publish(run, {"type": "step", "step": step})
-        if step.get("gate"):
-            run.status = "waiting"
-            run.paused_on_step_id = step["id"]
-            await store.publish(
-                run,
-                {"type": "status", "status": "waiting", "pausedOnStepId": step["id"]},
-            )
-            return
+    await store.publish(
+        run,
+        {
+            "type": "step",
+            "step": {
+                "id": "survey-agent",
+                "stageIndex": 1,
+                "title": "Survey Agent extracting atomic concepts",
+                "summary": "Reading selected references and extracting concepts, methods, datasets, and metrics.",
+                "duration": "queued",
+                "status": "running",
+                "tool": tool(
+                    "LLM Survey Agent",
+                    {"task": run.task, "sources": prepare["sources"]},
+                    "Extracting structured survey signals from Prepare Agent references.",
+                    "running",
+                ),
+            },
+        },
+    )
+    survey = await run_survey_agent(run.task, prepare)
+    survey_output = json.dumps(
+        {k: v for k, v in survey.items() if k not in {"_raw", "elapsedMs"}},
+        ensure_ascii=False,
+        indent=2,
+    )
+    await store.update_step(
+        run,
+        "survey-agent",
+        {
+            "status": "done",
+            "duration": format_duration(survey["elapsedMs"]),
+            "summary": format_survey_summary(survey),
+            "sources": prepare["sources"],
+            "tool": {
+                "status": "done",
+                "input": {"task": run.task, "sources": prepare["sources"]},
+                "output": survey_output,
+                "sources": prepare["sources"],
+                "citations": survey.get("sources_used") or prepare["citations"],
+                "timeMs": survey["elapsedMs"],
+            },
+        },
+    )
+
+    experiment_step = build_planning_steps()[2]
+    experiment_step.pop("delayMs", None)
+    await store.publish(run, {"type": "step", "step": experiment_step})
+    run.status = "waiting"
+    run.paused_on_step_id = experiment_step["id"]
+    await store.publish(
+        run,
+        {"type": "status", "status": "waiting", "pausedOnStepId": experiment_step["id"]},
+    )
 
 
 def build_approval_steps(payload: ApprovalPayload) -> List[Dict[str, Any]]:
