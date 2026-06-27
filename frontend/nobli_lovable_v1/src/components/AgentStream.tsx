@@ -22,6 +22,7 @@ export function AgentStream({
   task,
   approvedOpportunity,
   onApprove,
+  onApprovalAction,
   onSelectTool,
   selectedToolStepId,
   onSelectOpportunity,
@@ -34,6 +35,7 @@ export function AgentStream({
   task: string;
   approvedOpportunity?: string;
   onApprove: (id: string) => void;
+  onApprovalAction: (stepId: string, action: "accept" | "reject" | "ask-revision") => void;
   onSelectTool: (stepId: string) => void;
   selectedToolStepId?: string;
   onSelectOpportunity: (id: string) => void;
@@ -102,7 +104,7 @@ export function AgentStream({
                 >
                   Stage {s.stageIndex + 1}
                 </span>
-                <span className="text-ink-muted">Worked for {s.duration}</span>
+                <span className="text-ink-muted">{formatDurationLabel(s.duration)}</span>
                 <StatusPill status={s.status} />
               </div>
               <div className="mt-0.5 text-[13px] font-medium text-foreground">{s.title}</div>
@@ -152,6 +154,7 @@ export function AgentStream({
                       onApprove={onApprove}
                     />
                   )}
+                  {/* TODO(real-agent): replace this mock card with structured Coding Plan Agent output. */}
                   {s.output.kind === "experiment" && <ExperimentCard />}
                   {s.output.kind === "iteration" && <IterationCard />}
                   {s.output.kind === "abstract" && <AbstractCard />}
@@ -168,10 +171,7 @@ export function AgentStream({
                   <GateBar
                     label={s.gateLabel ?? "Human approval"}
                     hint={s.gateHint ?? "Approve to let the agent continue."}
-                    onApprove={() => {
-                      toast.success("Approved — agent continuing.");
-                      onApprove(s.id);
-                    }}
+                    onAction={(action) => onApprovalAction(s.id, action)}
                   />
                 )}
             </div>
@@ -194,6 +194,12 @@ export function AgentStream({
   );
 }
 
+function formatDurationLabel(duration: string) {
+  if (duration === "pending" || duration === "queued") return "Queued";
+  if (!duration) return "Queued";
+  return `Worked for ${duration}`;
+}
+
 function StatusPill({ status }: { status: Step["status"] }) {
   const map: Record<Step["status"], { label: string; className: string }> = {
     running: { label: "running", className: "border-[var(--color-running)] text-[var(--color-running)]" },
@@ -212,11 +218,11 @@ function StatusPill({ status }: { status: Step["status"] }) {
 function GateBar({
   label,
   hint,
-  onApprove,
+  onAction,
 }: {
   label: string;
   hint: string;
-  onApprove: () => void;
+  onAction: (action: "accept" | "reject" | "ask-revision") => void;
 }) {
   return (
     <div className="mt-3 rounded-lg border border-foreground/30 bg-[var(--color-surface)] p-3">
@@ -230,13 +236,19 @@ function GateBar({
       <div className="mt-1 text-[12px] text-ink-muted">{hint}</div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button
-          onClick={onApprove}
+          onClick={() => {
+            toast.success("Approved — agent continuing.");
+            onAction("accept");
+          }}
           className="inline-flex items-center gap-1 rounded-md bg-foreground px-2.5 py-1 text-[11.5px] font-medium text-background hover:opacity-90"
         >
           <Check className="h-3 w-3" /> Accept &amp; continue
         </button>
         <button
-          onClick={() => toast("Revision requested — agent will adjust before continuing.")}
+          onClick={() => {
+            toast("Revision requested — agent will adjust before continuing.");
+            onAction("ask-revision");
+          }}
           className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-[11.5px] hover:bg-[var(--color-surface-2)]"
         >
           <Pencil className="h-3 w-3" /> Ask for revision
@@ -248,7 +260,10 @@ function GateBar({
           <MessageSquare className="h-3 w-3" /> Discuss
         </button>
         <button
-          onClick={() => toast("Skipped — moving on without approval.")}
+          onClick={() => {
+            toast("Skipped — run paused without approval.");
+            onAction("reject");
+          }}
           className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] text-ink-muted hover:text-foreground"
           title="Skip"
         >
