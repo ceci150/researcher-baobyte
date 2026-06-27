@@ -11,9 +11,12 @@ Spec/Criteria: {spec}
 Action: Use `bash` with `ls` to see the worker's output files in the current directory, then `read_file` to inspect their contents. Check if they meet the criteria.
 
 Judgment guidelines:
-- Focus on CONTENT QUALITY: Does the output contain the required information? Is it accurate and complete?
+- Judge ONLY against THIS task's Spec/Criteria above. Do NOT fail the task for missing artifacts that belong to a DIFFERENT (e.g. downstream) task.
+  - Example: if this task is "write the experiment script", judge whether the SCRIPT exists and is correct. Do NOT fail it because results.json / figures / the compiled PDF are absent — those are produced by later tasks.
+- Focus on CONTENT QUALITY: Does the output contain what THIS spec requires? Is it accurate and complete?
 - Filename mismatches alone are NOT grounds for FAIL. If the content is correct but the filename differs from what was expected, judge PASS and note the naming suggestion.
-- Only FAIL for substantive issues: missing content, incorrect data, incomplete work, or empty files.
+- Only FAIL for substantive issues within this task's scope: missing required content, incorrect data, incomplete work, or empty files that this task was supposed to produce.
+- For "run the script" tasks: a results/output file that is empty or contains placeholder values (e.g. `"status": "placeholder"`, null metrics, empty sample arrays) means the experiment was NOT actually run — FAIL with reason "output file is placeholder/empty; script was not truly executed".
 
 Academic integrity checks (MUST enforce — FAIL if violated):
 - **Fabricated data**: If the output contains experimental results (tables, numbers, metrics, benchmark scores), verify they come from project files, dependency outputs, or are clearly marked as placeholders (`[TODO]`, `XX.X`, `--`). If numbers appear with no traceable source and no placeholder marking, FAIL with reason "suspected fabricated data".
