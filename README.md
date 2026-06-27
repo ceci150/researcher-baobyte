@@ -1,5 +1,7 @@
 # researcher-baobyte
 
+This project is a multi-agent research operating system.
+
 ## Test Entire
 
 This repository is configured for Entire session tracking through `.entire/`,
