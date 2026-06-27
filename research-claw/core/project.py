@@ -1079,6 +1079,14 @@ class Project:
 
         if latex_config.use_latexmk and self._has_latexmk():
             result = self._compile_latexmk(tex_path, latex_config, compile_dir)
+        elif shutil.which(latex_config.engine):
+            result = self._compile_manual(tex_path, latex_config, compile_dir)
+        elif self._has_tectonic():
+            # No traditional TeX engine on PATH — fall back to tectonic, a
+            # single-binary engine that auto-fetches packages and handles
+            # bibtex + multiple passes in one invocation.
+            logger.info(f"Engine '{latex_config.engine}' not found; compiling with tectonic")
+            result = self._compile_tectonic(tex_path, latex_config, compile_dir)
         else:
             result = self._compile_manual(tex_path, latex_config, compile_dir)
 
@@ -1106,6 +1114,62 @@ class Project:
     @staticmethod
     def _has_latexmk() -> bool:
         return shutil.which("latexmk") is not None
+
+    @staticmethod
+    def _has_tectonic() -> bool:
+        return shutil.which("tectonic") is not None
+
+    def _compile_tectonic(self, tex_path: Path, config: LaTeXConfig, compile_dir: Path) -> CompileResult:
+        """Compile with tectonic — one command handles bibtex + multiple passes.
+
+        Tectonic always uses an XeTeX-derived engine, so it transparently
+        supports both pdflatex- and xelatex-targeted sources. It writes the
+        same .log file format that _parse_errors/_parse_warnings expect.
+        """
+        cmd = [
+            "tectonic", "-X", "compile",
+            "--keep-logs", "--keep-intermediates",
+            "--outdir", str(compile_dir),
+            tex_path.name,
+        ]
+        if config.extra_args:
+            cmd.extend(config.extra_args)
+
+        try:
+            proc = subprocess.run(
+                cmd, cwd=str(compile_dir),
+                capture_output=True, text=True,
+                timeout=config.timeout_seconds or 300,
+            )
+            pdf_path = compile_dir / (tex_path.stem + ".pdf")
+            log_file = compile_dir / (tex_path.stem + ".log")
+
+            if pdf_path.exists():
+                warnings = self._parse_warnings(log_file)
+                if proc.returncode != 0:
+                    warnings = self._parse_errors(log_file) + warnings
+                return CompileResult(
+                    success=True, pdf_path=pdf_path,
+                    warnings=warnings,
+                    method="tectonic",
+                )
+            # tectonic streams diagnostics to stderr; surface them when the
+            # .log was never produced (e.g. early fatal error).
+            errors = self._parse_errors(log_file) if log_file.exists() else []
+            if not errors and proc.stderr:
+                errors = [proc.stderr[-2000:]]
+            return CompileResult(
+                success=False,
+                errors=errors or ["tectonic produced no PDF"],
+                log_excerpt=proc.stderr[-2000:] if proc.stderr else "",
+                method="tectonic",
+            )
+        except subprocess.TimeoutExpired:
+            return CompileResult(
+                success=False,
+                errors=[f"Compilation timed out after {config.timeout_seconds or 300}s"],
+                method="tectonic",
+            )
 
     def _compile_latexmk(self, tex_path: Path, config: LaTeXConfig, compile_dir: Path) -> CompileResult:
         engine_flag = {
