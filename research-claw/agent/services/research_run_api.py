@@ -234,48 +234,161 @@ def infer_prepare_query(task: str) -> str:
     return " ".join(deduped[:8]) or text[:120] or "machine learning"
 
 
-def parse_arxiv_result(result: str) -> tuple[list[str], list[str]]:
-    sources: list[str] = []
-    citations: list[str] = []
-    current_title = ""
+def build_prepare_queries(task: str) -> List[str]:
+    base = infer_prepare_query(task)
+    tokens = tokenize_research_text(base)
+    queries = [base]
+
+    if {"explainable", "interpretability", "interpretable", "xai"} & set(tokens):
+        queries.extend(
+            [
+                "explainable artificial intelligence computer vision interpretability",
+                "vision transformer explainability attribution saliency",
+                "post-hoc explanation faithfulness computer vision",
+            ]
+        )
+    if {"concept", "bottleneck", "cbm"} & set(tokens):
+        queries.extend(
+            [
+                "concept bottleneck models computer vision",
+                "concept-based explanations vision models",
+            ]
+        )
+
+    compact = " ".join(tokens[:6])
+    if compact and compact not in queries:
+        queries.append(compact)
+    return list(dict.fromkeys(q for q in queries if q))[:5]
+
+
+def tokenize_research_text(text: str) -> List[str]:
+    stopwords = {
+        "about", "paper", "write", "want", "publish", "strong", "venue", "from",
+        "this", "that", "with", "and", "the", "for", "into", "research", "using",
+        "based", "model", "models", "method", "methods", "task", "tasks",
+    }
+    return [
+        word.lower()
+        for word in re.findall(r"[A-Za-z][A-Za-z0-9+\-]{2,}", text)
+        if word.lower() not in stopwords
+    ]
+
+
+def parse_arxiv_papers(result: str, query: str) -> List[Dict[str, Any]]:
+    papers: List[Dict[str, Any]] = []
+    current: Dict[str, Any] | None = None
     for line in result.splitlines():
         title_match = re.match(r"\[(\d+)\]\s+(.+)", line)
         if title_match:
-            current_title = title_match.group(2).strip()
-            citations.append(current_title)
+            if current:
+                papers.append(current)
+            current = {"title": title_match.group(2).strip(), "query": query}
             continue
-        url_match = re.match(r"\s*URL\s+:\s+(\S+)", line)
-        if url_match:
-            url = url_match.group(1).strip()
-            sources.append(f"{current_title} — {url}" if current_title else url)
-    return sources[:5], citations[:5]
+        if not current:
+            continue
+        field_match = re.match(r"\s*([A-Za-z ]+):\s+(.*)", line)
+        if not field_match:
+            continue
+        field = field_match.group(1).strip().lower().replace(" ", "_")
+        value = field_match.group(2).strip()
+        current[field] = value
+    if current:
+        papers.append(current)
+    return papers
+
+
+def score_prepare_paper(paper: Dict[str, Any], task_tokens: List[str]) -> float:
+    title = str(paper.get("title", ""))
+    abstract = str(paper.get("abstract", ""))
+    categories = str(paper.get("categories", ""))
+    haystack_title = set(tokenize_research_text(title))
+    haystack_all = set(tokenize_research_text(f"{title} {abstract}"))
+    task = set(task_tokens)
+
+    score = 0.0
+    score += 3.0 * len(task & haystack_title)
+    score += 1.0 * len(task & haystack_all)
+
+    title_lower = title.lower()
+    abstract_lower = abstract.lower()
+    if any(term in title_lower for term in ["explainable", "interpretability", "interpretable", "xai"]):
+        score += 4.0
+    if any(term in abstract_lower for term in ["explainable", "interpretability", "interpretable", "xai"]):
+        score += 2.0
+    if any(term in title_lower for term in ["computer vision", "vision"]):
+        score += 2.0
+    if "cs.CV" in categories:
+        score += 1.5
+    if any(term in title_lower for term in ["workshop", "pollination", "blind and low-vision"]):
+        score -= 3.0
+    return score
+
+
+def format_prepare_output(papers: List[Dict[str, Any]], queries: List[str]) -> str:
+    if not papers:
+        return f"No ranked arXiv papers found. Queries tried: {', '.join(queries)}"
+    lines = [
+        "Ranked arXiv reference candidates",
+        f"Queries tried: {', '.join(queries)}",
+        "=" * 60,
+    ]
+    for index, paper in enumerate(papers, 1):
+        lines.extend(
+            [
+                f"[{index}] {paper.get('title', 'Untitled')}",
+                f"    Score    : {paper.get('score', 0):.1f}",
+                f"    Query    : {paper.get('query', '')}",
+                f"    Published: {paper.get('published', 'unknown')}",
+                f"    Categories: {paper.get('categories', '')}",
+                f"    URL      : {paper.get('url', '')}",
+                f"    Abstract : {paper.get('abstract', '')}",
+                "",
+            ]
+        )
+    return "\n".join(lines).strip()
 
 
 async def run_prepare_agent(task: str) -> Dict[str, Any]:
-    query = infer_prepare_query(task)
+    queries = build_prepare_queries(task)
+    primary_query = queries[0]
+    task_tokens = tokenize_research_text(" ".join(queries))
     started = time.perf_counter()
     arxiv_tool = ArxivSearchTool()
-    result = await asyncio.to_thread(
-        arxiv_tool.execute,
-        query=query,
-        max_results=3,
-        sort_by="relevance",
-        categories=["cs.CV", "cs.LG", "cs.AI"],
-    )
-    sources, citations = parse_arxiv_result(result)
-    if not sources and "No papers found" in result:
-        fallback_query = " ".join(query.split()[:5])
+    papers_by_url: Dict[str, Dict[str, Any]] = {}
+    raw_results: List[str] = []
+
+    for query in queries:
         result = await asyncio.to_thread(
             arxiv_tool.execute,
-            query=fallback_query,
-            max_results=3,
+            query=query,
+            max_results=5,
             sort_by="relevance",
+            categories=["cs.CV", "cs.LG", "cs.AI"],
         )
-        query = fallback_query
-        sources, citations = parse_arxiv_result(result)
+        raw_results.append(result)
+        for paper in parse_arxiv_papers(result, query):
+            url = str(paper.get("url", ""))
+            key = url or str(paper.get("title", "")).lower()
+            if not key:
+                continue
+            score = score_prepare_paper(paper, task_tokens)
+            existing = papers_by_url.get(key)
+            if not existing or score > existing.get("score", 0):
+                paper["score"] = score
+                papers_by_url[key] = paper
+
+    ranked = sorted(papers_by_url.values(), key=lambda paper: paper.get("score", 0), reverse=True)
+    selected = ranked[:3]
+    sources = [
+        f"{paper.get('title', 'Untitled')} — {paper.get('url', '')}".strip(" —")
+        for paper in selected
+    ]
+    citations = [str(paper.get("title", "Untitled")) for paper in selected]
+    result = format_prepare_output(selected, queries)
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     return {
-        "query": query,
+        "query": primary_query,
+        "queries": queries,
         "result": result,
         "sources": sources,
         "citations": citations,
@@ -298,6 +411,7 @@ def format_duration(ms: int) -> str:
 
 async def emit_goal_accept_steps(run: ResearchRun) -> None:
     query = infer_prepare_query(run.task)
+    queries = build_prepare_queries(run.task)
     await store.publish(
         run,
         {
@@ -313,8 +427,10 @@ async def emit_goal_accept_steps(run: ResearchRun) -> None:
                     "arxiv_search",
                     {
                         "query": query,
-                        "max_results": 3,
+                        "queries": queries,
+                        "max_results_per_query": 5,
                         "categories": ["cs.CV", "cs.LG", "cs.AI"],
+                        "rerank": "task-keyword/title/abstract overlap",
                     },
                     "Searching arXiv through the framework tool layer.",
                     "running",
@@ -340,8 +456,10 @@ async def emit_goal_accept_steps(run: ResearchRun) -> None:
                 "status": "done",
                 "input": {
                     "query": prepare["query"],
-                    "max_results": 3,
+                    "queries": prepare["queries"],
+                    "max_results_per_query": 5,
                     "categories": ["cs.CV", "cs.LG", "cs.AI"],
+                    "rerank": "task-keyword/title/abstract overlap",
                 },
                 "output": compact_tool_output(prepare["result"]),
                 "sources": prepare["sources"],
