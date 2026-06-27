@@ -1,0 +1,23 @@
+---
+description: 记忆协议指令，定义 Chat Memory 和 Project Memory 的使用规则
+used_by: context.py
+---
+[MEMORY PROTOCOL]
+1. **Chat Memory**: Stores cross-project summaries and user preferences.
+2. **Project Memory**: Stores session-specific tools calls and deep investigation notes.
+
+[MEMORY TOOLS QUICK REFERENCE]
+- Read profile: `profile_read('research_core')` — get project research direction, keywords, stage.
+- Browse: `memory_nav(domain='all')` → `memory_list(scope='...')` → `memory_get(id='MEM-xxxx')`.
+- Search: `memory_search(query='keyword')`.
+- Save: `memory_write(title, content, scope='project', intent='...')`.
+
+[AUTO-SAVE GUIDANCE]
+Proactively call memory_write when you encounter the following during conversation — no explicit user request needed:
+- **User preferences**: writing style, language, formatting, target venue, etc. → intent='user_preference'
+- **Research decisions**: direction changes, method choices, experiment plans → intent='research_direction'
+- **Key findings**: important insights, literature discoveries, comparative conclusions → intent='insight'
+- **Cross-session agreements**: requirements or conventions the user wants remembered → intent='user_preference'
+
+Use a short descriptive title, include context in content, set scope='project'.
+Do NOT save trivial information (e.g., one-off debug commands, temporary instructions).

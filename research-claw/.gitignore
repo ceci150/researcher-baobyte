@@ -1,0 +1,55 @@
+
+./README
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# System
+.DS_Store
+.checkpoints/
+
+# Secrets & User Config
+.env
+.olauth
+settings.json
+keys.json
+settings_copy.json
+
+# Runtime Data & Memory
+.bot/
+.bot_data/
+logs/
+*.log
+log/
+workspace/
+workspace_*/
+workspace_back/
+manuscript/
+*.pid
+
+# Dev & Test
+.claude/
+.pytest_cache/
+.pytest/
+tests/runs/*
+backups/
+
+# IDE
+.idea/
+.vscode/
+.codex/
+others/
+tests/
+findings.md
+progress.md
+task_plan.md
+docs/plans/2026-03-29-resume-task-recovery.md
+docs/plans/2026-03-29-session-command.md
