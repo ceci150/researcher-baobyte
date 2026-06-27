@@ -6,6 +6,7 @@ research_agent/results/*
 research_agent/paper_db/*
 
 __pycache__/
+.venv/
 tmp/*
 logs/*
 *.tar.gz
