@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
+
+from agent.tools.arxiv_search import ArxivSearchTool
 
 
 research_run_router = APIRouter()
@@ -196,6 +200,172 @@ def build_planning_steps() -> List[Dict[str, Any]]:
     ]
 
 
+def infer_prepare_query(task: str) -> str:
+    text = re.sub(r"\s+", " ", task).strip()
+    phrase_patterns = [
+        r"about ([^.]+)",
+        r"for ([^.]+)",
+        r"on ([^.]+)",
+    ]
+    for pattern in phrase_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            phrase = match.group(1).strip(" .,:;")
+            phrase = re.split(
+                r"\b(and publish|and submit|and write|publish it|strong venue|venue)\b",
+                phrase,
+                maxsplit=1,
+                flags=re.IGNORECASE,
+            )[0].strip(" .,:;")
+            if 8 <= len(phrase) <= 120:
+                return phrase
+
+    stopwords = {
+        "find", "write", "paper", "about", "from", "this", "that", "with", "and",
+        "the", "for", "into", "strong", "venue", "publish", "want", "research",
+        "moment", "abstract", "introduce", "we", "our", "results", "suggest",
+    }
+    words = [
+        w.lower()
+        for w in re.findall(r"[A-Za-z][A-Za-z0-9@+\-]{2,}", text)
+        if w.lower() not in stopwords
+    ]
+    deduped = list(dict.fromkeys(words))
+    return " ".join(deduped[:8]) or text[:120] or "machine learning"
+
+
+def parse_arxiv_result(result: str) -> tuple[list[str], list[str]]:
+    sources: list[str] = []
+    citations: list[str] = []
+    current_title = ""
+    for line in result.splitlines():
+        title_match = re.match(r"\[(\d+)\]\s+(.+)", line)
+        if title_match:
+            current_title = title_match.group(2).strip()
+            citations.append(current_title)
+            continue
+        url_match = re.match(r"\s*URL\s+:\s+(\S+)", line)
+        if url_match:
+            url = url_match.group(1).strip()
+            sources.append(f"{current_title} — {url}" if current_title else url)
+    return sources[:5], citations[:5]
+
+
+async def run_prepare_agent(task: str) -> Dict[str, Any]:
+    query = infer_prepare_query(task)
+    started = time.perf_counter()
+    arxiv_tool = ArxivSearchTool()
+    result = await asyncio.to_thread(
+        arxiv_tool.execute,
+        query=query,
+        max_results=3,
+        sort_by="relevance",
+        categories=["cs.CV", "cs.LG", "cs.AI"],
+    )
+    sources, citations = parse_arxiv_result(result)
+    if not sources and "No papers found" in result:
+        fallback_query = " ".join(query.split()[:5])
+        result = await asyncio.to_thread(
+            arxiv_tool.execute,
+            query=fallback_query,
+            max_results=3,
+            sort_by="relevance",
+        )
+        query = fallback_query
+        sources, citations = parse_arxiv_result(result)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    return {
+        "query": query,
+        "result": result,
+        "sources": sources,
+        "citations": citations,
+        "elapsedMs": elapsed_ms,
+    }
+
+
+def compact_tool_output(output: str, limit: int = 1400) -> str:
+    if len(output) <= limit:
+        return output
+    return output[:limit].rstrip() + "\n\n[truncated for GUI]"
+
+
+def format_duration(ms: int) -> str:
+    seconds = max(1, round(ms / 1000))
+    if seconds < 60:
+        return f"{seconds}s"
+    return f"{seconds // 60}m {seconds % 60:02d}s"
+
+
+async def emit_goal_accept_steps(run: ResearchRun) -> None:
+    query = infer_prepare_query(run.task)
+    await store.publish(
+        run,
+        {
+            "type": "step",
+            "step": {
+                "id": "prepare-agent",
+                "stageIndex": 1,
+                "title": "Prepare Agent searching reference sources",
+                "summary": f"Searching arXiv for candidate papers related to: {query}",
+                "duration": "queued",
+                "status": "running",
+                "tool": tool(
+                    "arxiv_search",
+                    {
+                        "query": query,
+                        "max_results": 3,
+                        "categories": ["cs.CV", "cs.LG", "cs.AI"],
+                    },
+                    "Searching arXiv through the framework tool layer.",
+                    "running",
+                ),
+                "delayMs": 0,
+            },
+        },
+    )
+
+    prepare = await run_prepare_agent(run.task)
+    await store.update_step(
+        run,
+        "prepare-agent",
+        {
+            "status": "done",
+            "duration": format_duration(prepare["elapsedMs"]),
+            "summary": (
+                f"Found {len(prepare['sources'])} arXiv reference candidates for "
+                f"'{prepare['query']}'."
+            ),
+            "sources": prepare["sources"],
+            "tool": {
+                "status": "done",
+                "input": {
+                    "query": prepare["query"],
+                    "max_results": 3,
+                    "categories": ["cs.CV", "cs.LG", "cs.AI"],
+                },
+                "output": compact_tool_output(prepare["result"]),
+                "sources": prepare["sources"],
+                "citations": prepare["citations"],
+                "timeMs": prepare["elapsedMs"],
+            },
+        },
+    )
+
+    for step in build_planning_steps()[1:]:
+        delay = step.pop("delayMs", 0)
+        if delay:
+            await asyncio.sleep(delay)
+        await store.publish(run, {"type": "step", "step": step})
+        if step.get("gate"):
+            run.status = "waiting"
+            run.paused_on_step_id = step["id"]
+            await store.publish(
+                run,
+                {"type": "status", "status": "waiting", "pausedOnStepId": step["id"]},
+            )
+            return
+
+
 def build_approval_steps(payload: ApprovalPayload) -> List[Dict[str, Any]]:
     if payload.action == "ask-revision":
         return [
@@ -319,6 +489,10 @@ async def approve_research_run(run_id: str, payload: ApprovalPayload):
         },
     )
     await store.publish(run, {"type": "status", "status": "running"})
+    if payload.action == "accept" and payload.step_id == "goal-parse":
+        await emit_goal_accept_steps(run)
+        return {"status": run.status, "pausedOnStepId": run.paused_on_step_id}
+
     emitted_gate = False
     for step in build_approval_steps(payload):
         delay = step.pop("delayMs", 0)
