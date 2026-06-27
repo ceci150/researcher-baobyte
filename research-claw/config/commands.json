@@ -1,0 +1,154 @@
+{
+  "commands": [
+    {
+      "name": "/help",
+      "handler": "agent.services.commands.HelpHandler",
+      "description": "Show all available commands and usage",
+      "aliases": ["/?"],
+      "requires_args": false
+    },
+    {
+      "name": "/reset",
+      "handler": "agent.services.commands.ResetHandler",
+      "description": "Clear conversation history and start a fresh session",
+      "requires_args": false
+    },
+    {
+      "name": "/stop",
+      "handler": "agent.services.commands.StopHandler",
+      "description": "Force-cancel the current operation and its spawned background tasks",
+      "aliases": ["/quit"],
+      "requires_args": false
+    },
+    {
+      "name": "/summarize",
+      "handler": "agent.services.commands.SummarizeHandler",
+      "description": "Summarize current context into active memory",
+      "requires_args": false,
+      "hidden": true
+    },
+    {
+      "name": "/recommend",
+      "handler": "agent.services.commands.RecommendHandler",
+      "description": "Detect latest project and research SOTA",
+      "requires_args": false,
+      "hidden": true
+    },
+    {
+      "name": "/back",
+      "handler": "agent.services.commands.BackToDefaultHandler",
+      "description": "Leave current project and return to Default workspace",
+      "requires_args": false,
+      "require_project": true
+    },
+    {
+      "name": "/compile",
+      "handler": "agent.services.commands.CompileHandler",
+      "description": "Compile the project LaTeX source into PDF",
+      "aliases": ["/build"],
+      "requires_args": false,
+      "require_project": true
+    },
+    {
+      "name": "/sync",
+      "handler": "agent.services.commands.SyncHandler",
+      "description": "Sync project files with Overleaf",
+      "aliases": ["/overleaf"],
+      "requires_args": false,
+      "args_usage": "/sync pull — download from Overleaf (default)\n/sync push — upload local changes to Overleaf",
+      "require_project": true
+    },
+    {
+      "name": "/git",
+      "handler": "agent.services.commands.GitHandler",
+      "description": "Enter Git version control sub-session",
+      "requires_args": false,
+      "require_project": true,
+      "hidden": true
+    },
+    {
+      "name": "/radar",
+      "handler": "agent.services.commands.RadarHandler",
+      "description": "Manage research radar automation jobs",
+      "requires_args": false,
+      "args_usage": "/radar [status|subscribe|jobs|bootstrap|run <job_id>|autoplan run]",
+      "require_project": true,
+      "hidden": true
+    },
+    {
+      "name": "/cleanup",
+      "handler": "agent.services.commands.CleanupHandler",
+      "description": "Clean up subagent working directories",
+      "requires_args": false,
+      "require_project": true,
+      "hidden": true
+    },
+    {
+      "name": "/pull-project",
+      "handler": "agent.services.commands.PullProjectHandler",
+      "description": "Sync project with Overleaf and Git commit",
+      "requires_args": false,
+      "require_project": true,
+      "hidden": true
+    },
+    {
+      "name": "/task",
+      "handler": "agent.services.commands.TaskHandler",
+      "description": "Enter interactive task mode for multi-step research goals",
+      "aliases": ["/deepresearch"],
+      "requires_args": false,
+      "args_usage": "/task <goal> — propose a plan, then /start to execute\n/task --e2e <goal> — fully automatic: plan + execute + commit with no confirmation",
+      "tool_name": "task_planner",
+      "tool_arg_key": "request"
+    },
+    {
+      "name": "/resume",
+      "handler": "agent.services.commands.ResumeTaskHandler",
+      "description": "Resume a persisted task session from a failed or interrupted task",
+      "requires_args": false,
+      "args_usage": "/resume — list recoverable tasks\n/resume <index|task_id|task_name> — reset that task and unfinished downstream tasks\n/resume --force <selector> — also reset inconsistent completed downstream tasks",
+      "require_project": true
+    },
+    {
+      "name": "/start",
+      "handler": "agent.services.commands.TaskStartHandler",
+      "description": "Approve the proposed task plan and begin execution (requires /task first)",
+      "requires_args": false
+    },
+    {
+      "name": "/done",
+      "handler": "agent.services.commands.TaskDoneHandler",
+      "description": "Exit task mode, generate a summary and restore normal mode (requires /task first)",
+      "requires_args": false
+    },
+    {
+      "name": "/list",
+      "handler": "agent.services.commands.ListProjectsHandler",
+      "description": "List local projects in the workspace",
+      "requires_args": false
+    },
+    {
+      "name": "/olist",
+      "handler": "agent.services.commands.OverleafListHandler",
+      "description": "List remote Overleaf projects",
+      "aliases": ["/ol"],
+      "requires_args": false
+    },
+    {
+      "name": "/switch",
+      "handler": "agent.services.commands.SwitchProjectHandler",
+      "description": "Switch to a project in the workspace",
+      "requires_args": true,
+      "args_usage": "/switch <project_name> — switch to project and create a new session\n/switch <project_name> <MMDD_NN> — resume a specific session",
+      "require_project": false
+    },
+    {
+      "name": "/session",
+      "handler": "agent.services.commands.SessionHandler",
+      "description": "List sessions for the current project or switch to one by name/index",
+      "requires_args": false,
+      "args_usage": "/session — list sessions for current project\n/session <session_name|index> — switch to that session",
+      "require_project": true
+    }
+  ]
+}
