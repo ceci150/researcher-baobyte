@@ -156,6 +156,9 @@ def tool(name: str, input_: Dict[str, Any], output: str, status: str = "done") -
 
 ARTIFACT_CODE_EXTENSIONS = {".py", ".ipynb", ".yaml", ".yml", ".toml", ".json", ".md", ".tex", ".sh"}
 ARTIFACT_FIGURE_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".svg"}
+EXAMPLE_ARTIFACT_PROJECT_ID = "budget-cot-paper"
+RESEARCH_CLAW_ROOT = Path(__file__).resolve().parents[2]
+EXAMPLE_ARTIFACT_ROOT = RESEARCH_CLAW_ROOT / "examples" / EXAMPLE_ARTIFACT_PROJECT_ID
 
 
 def workspace_root() -> Path:
@@ -164,6 +167,16 @@ def workspace_root() -> Path:
 
 def safe_relative(path: Path, root: Path) -> str:
     return str(path.resolve().relative_to(root.resolve()))
+
+
+def display_artifact_root(path: Path) -> str:
+    resolved = path.resolve()
+    for root in [workspace_root().resolve(), RESEARCH_CLAW_ROOT.resolve()]:
+        try:
+            return str(resolved.relative_to(root))
+        except ValueError:
+            continue
+    return resolved.name
 
 
 def artifact_url(project_id: str, relative_path: str) -> str:
@@ -189,6 +202,8 @@ def read_text_snippet(path: Path, limit: int = 8000) -> str:
 def find_project_core(project_id: str) -> Optional[Path]:
     if not project_id:
         return None
+    if project_id == EXAMPLE_ARTIFACT_PROJECT_ID and EXAMPLE_ARTIFACT_ROOT.exists():
+        return EXAMPLE_ARTIFACT_ROOT.resolve()
     root = workspace_root()
     project_root = (root / project_id).resolve()
     if not project_root.exists() or not project_root.is_dir():
@@ -206,6 +221,10 @@ def candidate_project_cores(project_id: Optional[str] = None) -> List[tuple[str,
         core = find_project_core(project_id)
         if core:
             candidates.append((project_id, core))
+        return candidates
+
+    if EXAMPLE_ARTIFACT_ROOT.exists():
+        return [(EXAMPLE_ARTIFACT_PROJECT_ID, EXAMPLE_ARTIFACT_ROOT.resolve())]
 
     if root.exists():
         for child in root.iterdir():
@@ -225,9 +244,13 @@ def artifact_score(core: Path) -> tuple[int, float]:
     key_paths = [
         core / "code" / "results.json",
         core / "results.json",
+        core / "results.tsv",
         core / "main.pdf",
         core / "figures",
         core / "code" / "run_experiment.py",
+        core / "experiment_matrix.py",
+        core / "plot.py",
+        core / "problems.py",
     ]
     for path in key_paths:
         if path.exists():
@@ -236,9 +259,9 @@ def artifact_score(core: Path) -> tuple[int, float]:
                 mtimes.append(path.stat().st_mtime)
             except OSError:
                 pass
-    if (core / "code").exists():
+    if (core / "code").exists() and any((core / "code").iterdir()):
         score += 1
-    for pattern in ("figures/*", "code/*.py", "*.pdf"):
+    for pattern in ("figures/*", "code/*.py", "*.py", "*.pdf", "*.tsv"):
         for path in core.glob(pattern):
             if path.is_file():
                 score += 1
@@ -258,12 +281,39 @@ def parse_results_json(path: Path) -> Optional[Any]:
         return None
 
 
+def parse_results_tsv(path: Path) -> Optional[Any]:
+    if not path.exists() or path.stat().st_size > 1_000_000:
+        return None
+    try:
+        lines = [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    except Exception:
+        return None
+    if not lines:
+        return None
+    header = lines[0].split("\t")
+    rows = []
+    for line in lines[1:101]:
+        values = line.split("\t")
+        rows.append({header[index]: values[index] if index < len(values) else "" for index in range(len(header))})
+    return {"columns": header, "rows": rows, "row_count": max(0, len(lines) - 1)}
+
+
+def parse_results_file(path: Path) -> Optional[Any]:
+    if path.suffix.lower() == ".json":
+        return parse_results_json(path)
+    if path.suffix.lower() == ".tsv":
+        return parse_results_tsv(path)
+    return None
+
+
 def discover_experiment_artifacts(project_id: Optional[str] = None) -> Dict[str, Any]:
     scored: List[tuple[int, float, str, Path]] = []
+    allowed_roots = [workspace_root().resolve()]
+    if EXAMPLE_ARTIFACT_ROOT.exists():
+        allowed_roots.append(EXAMPLE_ARTIFACT_ROOT.resolve())
     for candidate_id, core in candidate_project_cores(project_id):
-        try:
-            core.resolve().relative_to(workspace_root().resolve())
-        except ValueError:
+        resolved_core = core.resolve()
+        if not any(resolved_core == allowed or allowed in resolved_core.parents for allowed in allowed_roots):
             continue
         score, mtime = artifact_score(core)
         if score > 0:
@@ -326,14 +376,16 @@ def discover_experiment_artifacts(project_id: Optional[str] = None) -> Dict[str,
             pdfs.append(item)
 
     results_path = core / "code" / "results.json"
-    if not results_path.exists():
-        results_path = core / "results.json"
-    results = parse_results_json(results_path) if results_path.exists() else None
+    for candidate in [core / "code" / "results.json", core / "results.json", core / "results.tsv"]:
+        if candidate.exists():
+            results_path = candidate
+            break
+    results = parse_results_file(results_path) if results_path.exists() else None
 
     return {
         "found": True,
         "projectId": selected_project_id,
-        "root": safe_relative(core, workspace_root()),
+        "root": display_artifact_root(core),
         "lastModified": int(mtime),
         "resultsPath": safe_relative(results_path, core) if results_path.exists() else None,
         "results": results,
@@ -1636,6 +1688,11 @@ async def get_research_artifact_file(
     if not core:
         raise HTTPException(status_code=404, detail=f"project not found: {project_id}")
     root = core.resolve()
+    allowed_roots = [workspace_root().resolve()]
+    if EXAMPLE_ARTIFACT_ROOT.exists():
+        allowed_roots.append(EXAMPLE_ARTIFACT_ROOT.resolve())
+    if not any(root == allowed or allowed in root.parents for allowed in allowed_roots):
+        raise HTTPException(status_code=400, detail="project root is outside allowed artifact roots")
     target = (root / path).resolve()
     try:
         target.relative_to(root)
@@ -1652,14 +1709,24 @@ async def get_research_artifact_archive(project_id: str = Query(...)):
     if not core:
         raise HTTPException(status_code=404, detail=f"project not found: {project_id}")
     root = core.resolve()
+    allowed_roots = [workspace_root().resolve()]
+    if EXAMPLE_ARTIFACT_ROOT.exists():
+        allowed_roots.append(EXAMPLE_ARTIFACT_ROOT.resolve())
+    if not any(root == allowed or allowed in root.parents for allowed in allowed_roots):
+        raise HTTPException(status_code=400, detail="project root is outside allowed artifact roots")
     artifact_paths: List[Path] = []
     for pattern in [
         "code/**/*",
         "figures/**/*",
+        "*.py",
         "main.pdf",
         "paper.pdf",
         "results.json",
+        "results.tsv",
         "main.tex",
+        "extra_pkgs.tex",
+        "neurips.sty",
+        "README.md",
     ]:
         for path in root.glob(pattern):
             if path.is_file() and not path.name.startswith("."):
