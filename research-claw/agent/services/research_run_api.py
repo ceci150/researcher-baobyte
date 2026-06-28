@@ -756,6 +756,254 @@ async def emit_goal_accept_steps(run: ResearchRun) -> None:
     )
 
 
+def find_step(run: ResearchRun, step_id: str) -> Dict[str, Any]:
+    for step in run.steps:
+        if step.get("id") == step_id:
+            return step
+    return {}
+
+
+def fallback_ml_blueprint(plan_text: str) -> Dict[str, Any]:
+    return {
+        "implementation_scope": "dry-run implementation blueprint; no GPU, Docker, or training command executed",
+        "files": ["src/data.py", "src/model.py", "src/explain.py", "src/evaluate.py", "configs/smoke.yaml"],
+        "commands": ["python src/evaluate.py --config configs/smoke.yaml"],
+        "artifacts": ["metrics.json", "explanation_maps/", "run_report.md"],
+        "assumptions": ["datasets are available locally or through documented download scripts"],
+        "risks": ["compute availability unverified", "dataset licensing and preprocessing still need validation"],
+        "handoff": plan_text[:500],
+    }
+
+
+def fallback_judge_feedback(ml_output: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "verdict": "needs_review",
+        "strengths": ["implementation blueprint is structured enough for a first pass"],
+        "issues": ["no executable run has been performed yet", "dataset availability is not verified"],
+        "required_fixes": ["confirm dataset path and smoke-test command before execution"],
+        "approval_recommendation": "approve only as a planning checkpoint, not as completed experiment evidence",
+        "risk_level": "medium",
+        "checked_against": ["experiment plan", "implementation blueprint"],
+    }
+
+
+def format_ml_summary(blueprint: Dict[str, Any]) -> str:
+    files = blueprint.get("files") or []
+    commands = blueprint.get("commands") or []
+    return f"Prepared implementation blueprint with {len(files)} files and {len(commands)} command(s); no execution performed."
+
+
+def format_judge_summary(feedback: Dict[str, Any]) -> str:
+    verdict = feedback.get("verdict", "needs_review")
+    issues = feedback.get("issues") or []
+    return f"Judge verdict: {verdict}. Key issue: {str(issues[0])[:120] if issues else 'review generated.'}"
+
+
+async def run_ml_agent(task: str, plan_step: Dict[str, Any]) -> Dict[str, Any]:
+    plan_text = str((plan_step.get("tool") or {}).get("output") or plan_step.get("summary") or "")
+    prompt = f"""
+You are Machine Learning Agent inside an AI research framework.
+The user approved this experiment plan for task:
+{task}
+
+Experiment plan JSON/text:
+{plan_text[:6000]}
+
+Return ONLY compact JSON with keys:
+implementation_scope: string,
+files: string[],
+commands: string[],
+artifacts: string[],
+assumptions: string[],
+risks: string[],
+handoff: string.
+Important: Do not claim that code was executed. This stage only prepares an implementation blueprint for the GUI.
+"""
+    started = time.perf_counter()
+    provider = DynamicProviderProxy()
+    response = await provider.chat(
+        messages=[
+            {"role": "system", "content": "Return valid JSON only. Do not claim actual execution."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=900,
+    )
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if response.finish_reason == "error" or not response.content:
+        blueprint = fallback_ml_blueprint(plan_text)
+        blueprint["_raw"] = response.content or "No LLM response"
+        blueprint["_status"] = "fallback"
+    else:
+        blueprint = extract_json_object(response.content)
+        if not blueprint:
+            blueprint = fallback_ml_blueprint(plan_text)
+            blueprint["_raw"] = response.content
+            blueprint["_status"] = "fallback"
+        else:
+            blueprint["_raw"] = response.content
+            blueprint["_status"] = "llm"
+    blueprint["elapsedMs"] = elapsed_ms
+    return blueprint
+
+
+async def run_judge_agent(task: str, plan_step: Dict[str, Any], ml_output: Dict[str, Any]) -> Dict[str, Any]:
+    plan_text = str((plan_step.get("tool") or {}).get("output") or plan_step.get("summary") or "")
+    ml_json = json.dumps(
+        {k: v for k, v in ml_output.items() if k not in {"_raw", "elapsedMs"}},
+        ensure_ascii=False,
+        indent=2,
+    )
+    prompt = f"""
+You are Judge Agent inside an AI research framework.
+Task:
+{task}
+
+Approved experiment plan:
+{plan_text[:4000]}
+
+Machine Learning Agent blueprint:
+{ml_json[:5000]}
+
+Return ONLY compact JSON with keys:
+verdict: string,
+strengths: string[],
+issues: string[],
+required_fixes: string[],
+approval_recommendation: string,
+risk_level: string,
+checked_against: string[].
+Be strict: this is a blueprint review, not evidence of completed experiment execution.
+"""
+    started = time.perf_counter()
+    provider = DynamicProviderProxy()
+    response = await provider.chat(
+        messages=[
+            {"role": "system", "content": "Return valid JSON only. Be concise and critical."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=900,
+    )
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if response.finish_reason == "error" or not response.content:
+        feedback = fallback_judge_feedback(ml_output)
+        feedback["_raw"] = response.content or "No LLM response"
+        feedback["_status"] = "fallback"
+    else:
+        feedback = extract_json_object(response.content)
+        if not feedback:
+            feedback = fallback_judge_feedback(ml_output)
+            feedback["_raw"] = response.content
+            feedback["_status"] = "fallback"
+        else:
+            feedback["_raw"] = response.content
+            feedback["_status"] = "llm"
+    feedback["elapsedMs"] = elapsed_ms
+    return feedback
+
+
+async def emit_experiment_accept_steps(run: ResearchRun, approved_step_id: str) -> None:
+    plan_step = find_step(run, approved_step_id)
+    await store.publish(
+        run,
+        {
+            "type": "step",
+            "step": {
+                "id": "ml-agent",
+                "stageIndex": 3,
+                "title": "Machine Learning Agent preparing implementation blueprint",
+                "summary": "Preparing files, commands, artifacts, and assumptions for a first experiment iteration.",
+                "duration": "queued",
+                "status": "running",
+                "tool": tool(
+                    "Machine Learning Agent",
+                    {"approvedStep": approved_step_id},
+                    "Generating implementation blueprint; execution is not started.",
+                    "running",
+                ),
+            },
+        },
+    )
+    blueprint = await run_ml_agent(run.task, plan_step)
+    blueprint_output = json.dumps(
+        {k: v for k, v in blueprint.items() if k not in {"_raw", "elapsedMs"}},
+        ensure_ascii=False,
+        indent=2,
+    )
+    await store.update_step(
+        run,
+        "ml-agent",
+        {
+            "status": "done",
+            "duration": format_duration(blueprint["elapsedMs"]),
+            "summary": format_ml_summary(blueprint),
+            "tool": {
+                "status": "done",
+                "input": {"task": run.task, "approvedStep": approved_step_id},
+                "output": blueprint_output,
+                "sources": plan_step.get("sources", []),
+                "citations": (plan_step.get("tool") or {}).get("citations", []),
+                "timeMs": blueprint["elapsedMs"],
+            },
+        },
+    )
+
+    await store.publish(
+        run,
+        {
+            "type": "step",
+            "step": {
+                "id": "judge-feedback",
+                "stageIndex": 3,
+                "title": "Judge Agent reviewing implementation blueprint",
+                "summary": "Checking whether the blueprint matches the approved plan and is ready for execution.",
+                "duration": "queued",
+                "status": "running",
+                "tool": tool(
+                    "Judge Agent",
+                    {"checks": ["plan alignment", "execution readiness", "risks"]},
+                    "Reviewing ML Agent blueprint.",
+                    "running",
+                ),
+                "output": {"kind": "iteration"},
+            },
+        },
+    )
+    feedback = await run_judge_agent(run.task, plan_step, blueprint)
+    feedback_output = json.dumps(
+        {k: v for k, v in feedback.items() if k not in {"_raw", "elapsedMs"}},
+        ensure_ascii=False,
+        indent=2,
+    )
+    await store.update_step(
+        run,
+        "judge-feedback",
+        {
+            "status": "review",
+            "duration": format_duration(feedback["elapsedMs"]),
+            "summary": format_judge_summary(feedback),
+            "tool": {
+                "status": "done",
+                "input": {"task": run.task, "mlBlueprint": {k: v for k, v in blueprint.items() if k not in {"_raw", "elapsedMs"}}},
+                "output": feedback_output,
+                "sources": plan_step.get("sources", []),
+                "citations": (plan_step.get("tool") or {}).get("citations", []),
+                "timeMs": feedback["elapsedMs"],
+            },
+            "gate": True,
+            "gateLabel": "Approve iteration feedback",
+            "gateHint": "Approve feedback before continuing to writing or further experiments.",
+        },
+    )
+    run.status = "waiting"
+    run.paused_on_step_id = "judge-feedback"
+    await store.publish(
+        run,
+        {"type": "status", "status": "waiting", "pausedOnStepId": "judge-feedback"},
+    )
+
+
 def build_approval_steps(payload: ApprovalPayload) -> List[Dict[str, Any]]:
     if payload.action == "ask-revision":
         return [
@@ -881,6 +1129,9 @@ async def approve_research_run(run_id: str, payload: ApprovalPayload):
     await store.publish(run, {"type": "status", "status": "running"})
     if payload.action == "accept" and payload.step_id == "goal-parse":
         await emit_goal_accept_steps(run)
+        return {"status": run.status, "pausedOnStepId": run.paused_on_step_id}
+    if payload.action == "accept" and payload.step_id == "experiment-plan":
+        await emit_experiment_accept_steps(run, payload.step_id)
         return {"status": run.status, "pausedOnStepId": run.paused_on_step_id}
 
     emitted_gate = False
