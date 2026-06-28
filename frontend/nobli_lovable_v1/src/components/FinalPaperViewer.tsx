@@ -161,11 +161,22 @@ export function FinalPaperViewer({
   };
 
   const downloadLatex = () => {
+    // Prefer the real main.tex artifact from the backend run/example; fall back
+    // to the locally-rendered LaTeX only when no runtime artifact exists.
+    const texArtifact =
+      runtimeArtifacts?.codeFiles?.find((f) => f.path.endsWith("main.tex")) ??
+      runtimeArtifacts?.pdfs?.find((f) => f.path.endsWith("main.tex"));
+    const href = artifactHref(texArtifact?.url);
+    if (href) {
+      window.open(href, "_blank", "noopener,noreferrer");
+      toast.success("Opened LaTeX source artifact.");
+      return;
+    }
     const blob = new Blob([latex], { type: "text/x-tex;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "faithful-cbm-paper.tex";
+    link.download = "paper.tex";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -174,6 +185,15 @@ export function FinalPaperViewer({
   };
 
   const downloadCodeArtifact = () => {
+    // Prefer the real reproducibility archive (zip of code/figures/results/
+    // main.tex/pdf) from the backend; fall back to a placeholder note only when
+    // no runtime artifact is available.
+    const href = artifactHref(runtimeArtifacts?.archiveUrl);
+    if (href) {
+      window.open(href, "_blank", "noopener,noreferrer");
+      toast.success("Downloading reproducibility package.");
+      return;
+    }
     const content = [
       "Nobli demo code artifact.",
       "This placeholder represents the experiment and reproducibility package for the current research run.",
@@ -182,7 +202,7 @@ export function FinalPaperViewer({
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "faithful-cbm-reproducibility-package.txt";
+    link.download = "reproducibility-package.txt";
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
