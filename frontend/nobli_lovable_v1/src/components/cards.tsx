@@ -1014,13 +1014,56 @@ export function ConferencesCard() {
   );
 }
 
-export function MemoryCard() {
+type MemorySummaryOutput = {
+  run_id?: string;
+  task?: string;
+  completed_steps?: string[];
+  draft_title?: string;
+  remaining_work?: string[];
+};
+
+function parseMemorySummary(output?: string): MemorySummaryOutput | undefined {
+  if (!output) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const raw = parsed as Record<string, unknown>;
+    return {
+      run_id: typeof raw.run_id === "string" ? raw.run_id : undefined,
+      task: typeof raw.task === "string" ? raw.task : undefined,
+      completed_steps: stringArray(raw.completed_steps),
+      draft_title: typeof raw.draft_title === "string" ? raw.draft_title : undefined,
+      remaining_work: stringArray(raw.remaining_work),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function MemoryCard({ step }: { step?: Step }) {
   const [sent, setSent] = useState(false);
+  const memory = parseMemorySummary(step?.tool?.output);
+  const notifications = memory
+    ? [
+        {
+          id: "draft",
+          text: `Draft tracked: ${memory.draft_title ?? "untitled research narrative"}.`,
+        },
+        {
+          id: "steps",
+          text: `Completed steps recorded: ${memory.completed_steps?.join(", ") ?? "none"}.`,
+        },
+        ...(memory.remaining_work ?? []).map((item, index) => ({
+          id: `remaining-${index}`,
+          text: `Remaining work: ${item}`,
+        })),
+      ]
+    : MEMORY_NOTIFICATIONS;
   return (
-    <Card title="Memory & Growing" subtitle="Researcher signals queued for you">
+    <Card title="Memory & Growing" subtitle={memory?.task ?? "Researcher signals queued for you"}>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_240px]">
         <div className="space-y-1.5">
-          {MEMORY_NOTIFICATIONS.map((n) => (
+          {notifications.map((n) => (
             <div
               key={n.id}
               className="flex items-start gap-2 rounded-lg border border-border bg-[var(--color-surface)] px-3 py-2"
@@ -1035,9 +1078,13 @@ export function MemoryCard() {
             <div className="flex items-center gap-1.5 text-[10px] text-ink-muted">
               <Sparkle className="h-3 w-3" /> Research Compass
             </div>
-            <div className="mt-1 text-[11px] font-medium">Weekly research digest</div>
+            <div className="mt-1 text-[11px] font-medium">
+              {memory ? "Run memory snapshot" : "Weekly research digest"}
+            </div>
             <div className="mt-0.5 text-[10.5px] leading-snug text-ink-muted">
-              5 signals waiting. Tap to review.
+              {memory
+                ? `${memory.completed_steps?.length ?? 0} steps · ${memory.remaining_work?.length ?? 0} actions left.`
+                : "5 signals waiting. Tap to review."}
             </div>
           </div>
           <button
