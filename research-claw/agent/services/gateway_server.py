@@ -29,9 +29,12 @@ from core.memory import ProjectMemoryStore
 app = FastAPI(title="Research Claw Gateway")
 app.add_middleware(
     CORSMiddleware,
-    # Match any localhost/127.0.0.1 port so the Vite dev server works
-    # regardless of which port it picks (5173, 5174, ...).
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    # The Vite dev server (lovable config) is locked to port 8080
+    # (strictPort), so only allow that origin.
+    allow_origins=[
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
