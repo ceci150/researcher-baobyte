@@ -154,8 +154,7 @@ export function AgentStream({
                       onApprove={onApprove}
                     />
                   )}
-                  {/* TODO(real-agent): replace this mock card with structured Coding Plan Agent output. */}
-                  {s.output.kind === "experiment" && <ExperimentCard />}
+                  {s.output.kind === "experiment" && <ExperimentCard step={s} />}
                   {s.output.kind === "iteration" && <IterationCard />}
                   {s.output.kind === "abstract" && <AbstractCard />}
                   {s.output.kind === "publish" && <PublishCard />}

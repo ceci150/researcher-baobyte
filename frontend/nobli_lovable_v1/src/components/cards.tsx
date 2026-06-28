@@ -10,6 +10,7 @@ import {
   OPPORTUNITIES,
   PLATFORMS,
 } from "@/lib/mock-data";
+import type { Step } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import {
   Bell,
@@ -340,14 +341,65 @@ const sevColor = (s: string) =>
       ? "var(--stage-0-ring)"
       : "var(--stage-3-ring)";
 
-export function ExperimentCard() {
+type ExperimentPlanOutput = {
+  hypothesis?: string;
+  method?: string;
+  datasets?: string[];
+  metrics?: string[];
+  baselines?: string[];
+  resources?: string;
+  risks?: string[];
+  success_criteria?: string[];
+  next_actions?: string[];
+  rationale?: string;
+};
+
+function stringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return items.length > 0 ? items : undefined;
+}
+
+function parseExperimentPlan(output?: string): ExperimentPlanOutput | undefined {
+  if (!output) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const raw = parsed as Record<string, unknown>;
+    return {
+      hypothesis: typeof raw.hypothesis === "string" ? raw.hypothesis : undefined,
+      method: typeof raw.method === "string" ? raw.method : undefined,
+      datasets: stringArray(raw.datasets),
+      metrics: stringArray(raw.metrics),
+      baselines: stringArray(raw.baselines),
+      resources: typeof raw.resources === "string" ? raw.resources : undefined,
+      risks: stringArray(raw.risks),
+      success_criteria: stringArray(raw.success_criteria),
+      next_actions: stringArray(raw.next_actions),
+      rationale: typeof raw.rationale === "string" ? raw.rationale : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function ExperimentCard({ step }: { step?: Step }) {
   const [pick, setPick] = useState("B");
   const [open, setOpen] = useState(false);
+  const realPlan = parseExperimentPlan(step?.tool?.output);
+  const subtitle = realPlan
+    ? [realPlan.datasets?.[0], realPlan.metrics?.[0]].filter(Boolean).join(" · ") || "Structured plan from Coding Plan Agent"
+    : "Faithful-CBM under distribution shift";
+  const risks = realPlan?.risks?.map((risk, index) => ({
+    label: risk,
+    severity: index === 0 ? "med" : "low",
+    mitigation: realPlan.next_actions?.[index] ?? "Track during iteration and request revision if it blocks execution.",
+  })) ?? RISKS;
 
   return (
     <Card
       title="Experiment plan"
-      subtitle="Faithful-CBM under distribution shift"
+      subtitle={subtitle}
       headerRight={
         <button
           onClick={() => setOpen(true)}
@@ -358,15 +410,24 @@ export function ExperimentCard() {
       }
     >
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Field label="Hypothesis" value={EXPERIMENT.hypothesis} />
-        <Field label="Method" value={EXPERIMENT.method} />
+        <Field label="Hypothesis" value={realPlan?.hypothesis ?? EXPERIMENT.hypothesis} />
+        <Field label="Method" value={realPlan?.method ?? EXPERIMENT.method} />
         <Field label="Variables" value={EXPERIMENT.variables.join(" · ")} />
-        <Field label="Dataset" value={EXPERIMENT.dataset} />
-        <Field label="Baseline" value={EXPERIMENT.baseline} />
-        <Field label="Metric" value={EXPERIMENT.metric} />
-        <Field label="Contribution" value={EXPERIMENT.contribution} />
-        <Field label="Resources" value={EXPERIMENT.resources} />
+        <Field label="Dataset" value={realPlan?.datasets?.join(", ") ?? EXPERIMENT.dataset} />
+        <Field label="Baseline" value={realPlan?.baselines?.join(", ") ?? EXPERIMENT.baseline} />
+        <Field label="Metric" value={realPlan?.metrics?.join(", ") ?? EXPERIMENT.metric} />
+        <Field label={realPlan ? "Success criteria" : "Contribution"} value={realPlan?.success_criteria?.join(" · ") ?? EXPERIMENT.contribution} />
+        <Field label="Resources" value={realPlan?.resources ?? EXPERIMENT.resources} />
       </div>
+
+      {realPlan?.rationale && (
+        <div className="mt-3 rounded-lg border border-border bg-[var(--color-surface)] p-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
+            Agent rationale
+          </div>
+          <div className="mt-1 text-[11.5px] leading-snug text-foreground">{realPlan.rationale}</div>
+        </div>
+      )}
 
       {/* Design variants — comparison */}
       <div className="mt-4">
@@ -430,7 +491,7 @@ export function ExperimentCard() {
           Risk analysis
         </div>
         <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
-          {RISKS.map((r) => (
+          {risks.map((r) => (
             <div
               key={r.label}
               className="rounded-lg border p-2.5"
