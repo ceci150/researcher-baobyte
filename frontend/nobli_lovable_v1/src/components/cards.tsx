@@ -23,14 +23,13 @@ import {
   MessageSquare,
   Send,
   Smartphone,
-  Sparkle,
   X,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 const bandStyle: Record<string, string> = {
-  "High potential": "bg-foreground text-background",
+  "High potential": "border border-transparent text-foreground",
   Promising: "border border-border bg-card text-foreground",
   Niche: "border border-border bg-[var(--color-surface-2)] text-ink-muted",
   "Low fit": "border border-border bg-card text-ink-muted",
@@ -266,19 +265,20 @@ export function ApprovalOpportunitiesCard({
             toast.success("Direction approved — drafting experiment plan.");
             onApprove(pick);
           }}
-          className="rounded-md bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
+          className="rounded-full bg-foreground px-3.5 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
+          style={{ fontFamily: "var(--font-ui)" }}
         >
           Accept & continue
         </button>
         <button
           onClick={() => toast("Revision requested — re-ranking opportunities.")}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-[12px] hover:bg-[var(--color-surface)]"
+          className="rounded-full border border-border bg-card px-3.5 py-1.5 text-[12px] hover:bg-[var(--color-surface)]"
         >
           Ask for revision
         </button>
         <button
           onClick={() => toast("Opened discussion thread with agent.")}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-[12px] hover:bg-[var(--color-surface)]"
+          className="rounded-full border border-border bg-card px-3.5 py-1.5 text-[12px] hover:bg-[var(--color-surface)]"
         >
           Discuss with agent
         </button>
@@ -351,7 +351,7 @@ export function ExperimentCard() {
       headerRight={
         <button
           onClick={() => setOpen(true)}
-          className="rounded-md border border-border bg-card px-2 py-1 text-[10.5px] hover:bg-[var(--color-surface)]"
+          className="rounded-full border border-border bg-card px-2.5 py-1 text-[10.5px] hover:bg-[var(--color-surface)]"
         >
           ↗ Open research timeline
         </button>
@@ -404,7 +404,7 @@ export function ExperimentCard() {
                     Variant {v.id}
                   </span>
                   {v.pick && (
-                    <span className="text-[9.5px] text-[var(--color-success)] font-medium">
+                    <span className="text-[9.5px] font-medium text-[var(--success-text)]">
                       AI recommends
                     </span>
                   )}
@@ -625,7 +625,13 @@ export function IterationCard() {
       title="AutoResearch progress"
       subtitle="Iterations toward research objective"
       headerRight={
-        <span className="rounded-full bg-foreground px-2 py-0.5 text-[10.5px] font-medium text-background">
+        <span
+          className="rounded-full px-2.5 py-0.5 text-[10.5px] font-medium text-foreground"
+          style={{
+            background: "color-mix(in srgb, var(--brand-blue) 26%, white)",
+            fontFamily: "var(--font-ui)",
+          }}
+        >
           objective progress +34%
         </span>
       }
@@ -689,7 +695,7 @@ export function IterationCard() {
         <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
           AI feedback on Version 1
         </div>
-        <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3 text-[12px]">
+        <div className="rounded-xl border border-border bg-[var(--color-surface)] p-3 text-[12px]">
           <div className="text-foreground">
             Faithfulness loss weight is too low; perturbation schedule clips at shift severity 0.4.
           </div>
@@ -861,10 +867,10 @@ export function MemoryCard() {
           ))}
         </div>
         <div className="rounded-xl border border-border bg-[var(--color-surface)] p-3">
-          <div className="mx-auto max-w-[180px] rounded-2xl border border-border bg-card p-3 shadow-sm">
-            <div className="flex items-center gap-1.5 text-[10px] text-ink-muted">
-              <Sparkle className="h-3 w-3" /> Research Compass
-            </div>
+            <div className="mx-auto max-w-[180px] rounded-2xl border border-border bg-card p-3 shadow-[var(--shadow-quiet)]">
+              <div className="flex items-center gap-1.5 text-[10px] text-ink-muted">
+              <FileText className="h-3 w-3" /> Nobli
+              </div>
             <div className="mt-1 text-[11px] font-medium">Weekly research digest</div>
             <div className="mt-0.5 text-[10.5px] leading-snug text-ink-muted">
               5 signals waiting. Tap to review.
@@ -872,7 +878,8 @@ export function MemoryCard() {
           </div>
           <button
             onClick={() => setSent(true)}
-            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-foreground px-2.5 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
+            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-foreground px-3 py-1.5 text-[12px] font-medium text-background hover:opacity-90"
+            style={{ fontFamily: "var(--font-ui)" }}
           >
             <Smartphone className="h-3 w-3" /> Send to phone
           </button>
@@ -902,10 +909,16 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <div
+      className="rounded-[24px] border border-border bg-card p-4"
+      style={{ boxShadow: "var(--shadow-quiet)", backdropFilter: "blur(10px)" }}
+    >
       <div className="mb-2.5 flex items-start justify-between gap-2">
         <div>
-          <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground">
+          <div
+            className="flex items-center gap-1.5 text-[12.5px] font-semibold text-foreground"
+            style={{ fontFamily: "var(--font-ui)" }}
+          >
             <BookOpen className="h-3 w-3 text-ink-muted" />
             {title}
           </div>
@@ -920,8 +933,11 @@ function Card({
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-[var(--color-surface)] p-2.5">
-      <div className="text-[10.5px] font-medium uppercase tracking-wider text-ink-muted">
+    <div className="rounded-xl border border-border bg-[var(--color-surface)] p-2.5">
+      <div
+        className="text-[10px] font-medium uppercase tracking-[0.12em] text-ink-muted"
+        style={{ fontFamily: "var(--font-ui)" }}
+      >
         {label}
       </div>
       <div className="mt-0.5 text-[12px] leading-snug text-foreground">{value}</div>
@@ -931,7 +947,7 @@ function Field({ label, value }: { label: string; value: string }) {
 
 function SourceChip({ children }: { children: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[10.5px] text-ink-muted">
+    <span className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[10.5px] text-ink-muted">
       <span className="h-1 w-1 rounded-full bg-ink-muted" />
       {children}
     </span>
@@ -951,11 +967,12 @@ function Btn({
     <button
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors",
+        "inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-[11px] transition-colors",
         primary
           ? "bg-foreground text-background hover:opacity-90"
           : "border border-border bg-card text-foreground hover:bg-[var(--color-surface)]",
       )}
+      style={{ fontFamily: "var(--font-ui)" }}
     >
       {children}
     </button>

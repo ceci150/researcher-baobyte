@@ -22,8 +22,6 @@ export function AgentStream({
   task,
   approvedOpportunity,
   onApprove,
-  onSelectTool,
-  selectedToolStepId,
   onSelectOpportunity,
   selectedOpportunity,
   stageJump,
@@ -34,8 +32,6 @@ export function AgentStream({
   task: string;
   approvedOpportunity?: string;
   onApprove: (id: string) => void;
-  onSelectTool: (stepId: string) => void;
-  selectedToolStepId?: string;
   onSelectOpportunity: (id: string) => void;
   selectedOpportunity?: string;
   stageJump?: number;
@@ -43,6 +39,7 @@ export function AgentStream({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const refs = useRef<Record<number, HTMLDivElement | null>>({});
+  const activeStepId = steps[steps.length - 1]?.id;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -59,12 +56,18 @@ export function AgentStream({
 
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin">
-      <div className="mx-auto max-w-[820px] px-6 py-6">
-        <div className="mb-5 rounded-xl border border-border bg-card p-3.5">
-          <div className="text-[10.5px] font-medium uppercase tracking-wider text-ink-muted">
+      <div className="mx-auto max-w-[980px] px-6 py-6">
+        <div
+          className="mb-6 rounded-[24px] border border-border bg-card p-4"
+          style={{ boxShadow: "var(--shadow-soft)" }}
+        >
+          <div
+            className="text-[10.5px] font-medium uppercase tracking-[0.12em] text-ink-muted"
+            style={{ fontFamily: "var(--font-ui)" }}
+          >
             Research goal
           </div>
-          <div className="mt-1 text-[13px] leading-snug text-foreground">{task}</div>
+          <div className="mt-1.5 text-[14px] leading-[1.65] text-foreground">{task}</div>
         </div>
 
         <div className="relative pl-5">
@@ -75,10 +78,15 @@ export function AgentStream({
               ref={(el) => {
                 refs.current[s.stageIndex] = el;
               }}
-              className="relative mb-5 last:mb-2 rounded-lg px-3 py-2.5 -ml-3 border"
+              className="relative mb-5 last:mb-2 -ml-3 rounded-[22px] border px-3.5 py-3"
               style={{
-                backgroundColor: `var(--stage-${s.stageIndex}-bg)`,
-                borderColor: `color-mix(in oklab, var(--stage-${s.stageIndex}-ring) 25%, transparent)`,
+                backgroundColor:
+                  s.id === activeStepId ? `var(--stage-${s.stageIndex}-bg)` : "var(--color-card)",
+                borderColor:
+                  s.id === activeStepId
+                    ? `color-mix(in oklab, var(--stage-${s.stageIndex}-ring) 25%, transparent)`
+                    : "var(--color-border)",
+                boxShadow: "var(--shadow-quiet)",
               }}
             >
               <span
@@ -98,6 +106,7 @@ export function AgentStream({
                   style={{
                     backgroundColor: `color-mix(in oklab, var(--stage-${s.stageIndex}-ring) 18%, transparent)`,
                     color: `var(--stage-${s.stageIndex}-ink)`,
+                    fontFamily: "var(--font-ui)",
                   }}
                 >
                   Stage {s.stageIndex + 1}
@@ -105,24 +114,13 @@ export function AgentStream({
                 <span className="text-ink-muted">Worked for {s.duration}</span>
                 <StatusPill status={s.status} />
               </div>
-              <div className="mt-0.5 text-[13px] font-medium text-foreground">{s.title}</div>
-              <div className="mt-0.5 text-[12px] leading-snug text-ink-muted">{s.summary}</div>
-
-              {s.tool && (
-                <button
-                  onClick={() => onSelectTool(s.id)}
-                  className={cn(
-                    "mt-2 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors",
-                    selectedToolStepId === s.id
-                      ? "border-foreground bg-[var(--color-surface)] text-foreground"
-                      : "border-border bg-card text-ink-muted hover:text-foreground",
-                  )}
-                >
-                  <span className="h-1.5 w-1.5 rounded-sm bg-foreground" />
-                  Tool · {s.tool.name}
-                </button>
-              )}
-
+              <div
+                className="mt-1 text-[13.5px] font-medium text-foreground"
+                style={{ fontFamily: "var(--font-ui)" }}
+              >
+                {s.title}
+              </div>
+              <div className="mt-1 text-[12.5px] leading-[1.65] text-ink-muted">{s.summary}</div>
               {s.sources && s.sources.length > 0 && (
                 <div className="mt-1.5 flex flex-wrap gap-1">
                   {s.sources.map((src) => (
@@ -195,15 +193,41 @@ export function AgentStream({
 }
 
 function StatusPill({ status }: { status: Step["status"] }) {
-  const map: Record<Step["status"], { label: string; className: string }> = {
-    running: { label: "running", className: "border-[var(--color-running)] text-[var(--color-running)]" },
-    done: { label: "done", className: "border-border text-ink-muted" },
-    waiting: { label: "waiting for human", className: "border-foreground text-foreground" },
-    review: { label: "needs review", className: "border-foreground text-foreground" },
+  const map: Record<
+    Step["status"],
+    { label: string; background: string; color: string }
+  > = {
+    running: {
+      label: "running",
+      background: "color-mix(in srgb, var(--brand-blue) 20%, white)",
+      color: "var(--stage-1-ink)",
+    },
+    done: {
+      label: "done",
+      background: "var(--success-bg)",
+      color: "var(--success-text)",
+    },
+    waiting: {
+      label: "waiting for human",
+      background: "var(--warning-bg)",
+      color: "var(--warning-text)",
+    },
+    review: {
+      label: "needs review",
+      background: "var(--review-bg)",
+      color: "var(--review-text)",
+    },
   };
   const v = map[status];
   return (
-    <span className={cn("rounded-full border px-1.5 py-px text-[10px]", v.className)}>
+    <span
+      className="rounded-full border border-transparent px-2 py-0.5 text-[10px]"
+      style={{
+        background: v.background,
+        color: v.color,
+        fontFamily: "var(--font-ui)",
+      }}
+    >
       {v.label}
     </span>
   );
@@ -219,31 +243,41 @@ function GateBar({
   onApprove: () => void;
 }) {
   return (
-    <div className="mt-3 rounded-lg border border-foreground/30 bg-[var(--color-surface)] p-3">
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wider text-foreground">
+    <div
+      className="mt-4 rounded-[20px] border bg-[var(--color-surface)] p-3.5"
+      style={{
+        borderColor: "rgba(172,206,234,0.36)",
+        boxShadow: "var(--shadow-quiet)",
+      }}
+    >
+      <div
+        className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.12em] text-foreground"
+        style={{ fontFamily: "var(--font-ui)" }}
+      >
         <span className="relative inline-flex h-1.5 w-1.5">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-foreground opacity-50" />
           <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-foreground" />
         </span>
         {label}
       </div>
-      <div className="mt-1 text-[12px] text-ink-muted">{hint}</div>
+      <div className="mt-1.5 text-[12px] leading-[1.65] text-ink-muted">{hint}</div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button
           onClick={onApprove}
-          className="inline-flex items-center gap-1 rounded-md bg-foreground px-2.5 py-1 text-[11.5px] font-medium text-background hover:opacity-90"
+          className="inline-flex items-center gap-1 rounded-full bg-foreground px-3 py-1.5 text-[11.5px] font-medium text-background hover:opacity-90"
+          style={{ fontFamily: "var(--font-ui)" }}
         >
           <Check className="h-3 w-3" /> Accept &amp; continue
         </button>
         <button
           onClick={() => toast("Revision requested — agent will adjust before continuing.")}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-[11.5px] hover:bg-[var(--color-surface-2)]"
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 text-[11.5px] hover:bg-[var(--color-surface-2)]"
         >
           <Pencil className="h-3 w-3" /> Ask for revision
         </button>
         <button
           onClick={() => toast("Opened discussion with agent.")}
-          className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2.5 py-1 text-[11.5px] hover:bg-[var(--color-surface-2)]"
+          className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 text-[11.5px] hover:bg-[var(--color-surface-2)]"
         >
           <MessageSquare className="h-3 w-3" /> Discuss
         </button>

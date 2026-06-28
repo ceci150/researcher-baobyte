@@ -22,11 +22,11 @@ export function AgentControl({
       className="border-t border-border px-5 py-3 backdrop-blur-sm transition-colors"
       style={{
         backgroundColor: isDiscuss
-          ? "color-mix(in oklab, var(--stage-0-ring) 8%, var(--color-card))"
-          : undefined,
+          ? "color-mix(in srgb, var(--brand-yellow) 10%, rgba(255,255,255,0.92))"
+          : "rgba(255,255,255,0.82)",
       }}
     >
-      <div className="mx-auto max-w-[820px]">
+      <div className="mx-auto max-w-[980px]">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-[11.5px]">
             <span className="relative inline-flex h-1.5 w-1.5">
@@ -39,14 +39,22 @@ export function AgentControl({
                 style={{ background: isDiscuss ? "var(--stage-0-ring)" : "var(--color-running)" }}
               />
             </span>
-            <span className="text-foreground">Research agent · {isDiscuss ? "discuss mode" : "live"}</span>
+            <span
+              className="text-foreground"
+              style={{ fontFamily: "var(--font-ui)" }}
+            >
+              Research agent · {isDiscuss ? "discuss mode" : "live"}
+            </span>
             <span className="text-ink-muted">
               · {isDiscuss
                 ? "agent pauses before every step and waits for your call"
                 : "runs end-to-end, pausing only at critical approval gates"}
             </span>
           </div>
-          <div className="flex items-center gap-0.5 rounded-full border border-border bg-card p-0.5">
+          <div
+            className="flex items-center gap-0.5 rounded-full border border-border bg-card p-0.5"
+            style={{ boxShadow: "var(--shadow-quiet)" }}
+          >
             {(["Full Automation", "Discuss"] as AgentMode[]).map((m) => (
               <button
                 key={m}
@@ -55,17 +63,22 @@ export function AgentControl({
                   toast(m === "Discuss" ? "Discuss mode — I'll pause at every step." : "Full automation — I'll run end-to-end.");
                 }}
                 className={cn(
-                  "rounded-full px-2.5 py-0.5 text-[11px] transition-colors",
+                  "rounded-full px-3 py-1 text-[11px] transition-colors",
                   mode === m
-                    ? m === "Discuss"
-                      ? "text-background"
-                      : "bg-foreground text-background"
+                    ? "text-foreground"
                     : "text-ink-muted hover:text-foreground",
                 )}
                 style={
-                  mode === m && m === "Discuss"
-                    ? { background: "var(--stage-0-ring)" }
-                    : undefined
+                  mode === m
+                    ? {
+                        background:
+                          m === "Discuss"
+                            ? "color-mix(in srgb, var(--brand-yellow) 38%, white)"
+                            : "color-mix(in srgb, var(--brand-blue) 30%, white)",
+                        fontFamily: "var(--font-ui)",
+                        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.42)",
+                      }
+                    : { fontFamily: "var(--font-ui)" }
                 }
               >
                 {m}
@@ -85,9 +98,13 @@ export function AgentControl({
             setDrop(false);
           }}
           className={cn(
-            "flex items-center gap-1.5 rounded-xl border bg-card px-2 py-1.5 transition-colors",
-            drop ? "border-foreground bg-[var(--color-surface)]" : "border-border",
+            "flex items-center gap-1.5 rounded-[22px] border bg-card px-2.5 py-2 transition-colors",
+            drop ? "bg-[var(--color-surface)]" : "border-border",
           )}
+          style={{
+            borderColor: drop ? "var(--brand-blue)" : undefined,
+            boxShadow: "var(--shadow-soft)",
+          }}
         >
           <IconBtn title="Upload" onClick={() => toast("Upload — choose a paper, dataset, or note")}><Upload className="h-3.5 w-3.5" /></IconBtn>
           <IconBtn title="Attach" onClick={() => toast("Attach — link a reference to this run")}><Paperclip className="h-3.5 w-3.5" /></IconBtn>
@@ -102,7 +119,7 @@ export function AgentControl({
             value={listening ? "Listening… add a faithfulness ablation on Waterbirds" : text}
             onChange={(e) => setText(e.target.value)}
             placeholder={drop ? "Drop paper to attach…" : "Discover more / Ask follow-up…"}
-            className="flex-1 bg-transparent px-1 text-[12.5px] text-foreground placeholder:text-ink-muted focus:outline-none"
+            className="flex-1 bg-transparent px-1 text-[13px] text-foreground placeholder:text-ink-muted focus:outline-none"
           />
           <button
             onClick={() => {
@@ -117,7 +134,8 @@ export function AgentControl({
               setText("");
               setListening(false);
             }}
-            className="grid h-7 w-7 place-items-center rounded-md bg-foreground text-background hover:opacity-90"
+            className="grid h-8 w-8 place-items-center rounded-full bg-foreground text-background transition-all hover:-translate-y-px hover:opacity-92"
+            style={{ boxShadow: "var(--shadow-quiet)" }}
           >
             <ArrowUp className="h-3.5 w-3.5" />
           </button>
@@ -143,9 +161,17 @@ function IconBtn({
       title={title}
       onClick={onClick}
       className={cn(
-        "grid h-7 w-7 place-items-center rounded-md text-ink-muted hover:bg-[var(--color-surface-2)] hover:text-foreground transition-colors",
-        active && "bg-[var(--color-surface-2)] text-foreground",
+        "grid h-8 w-8 place-items-center rounded-full text-ink-muted transition-colors hover:bg-[var(--color-surface-2)] hover:text-foreground",
+        active && "text-foreground shadow-[inset_0_0_0_1px_rgba(172,206,234,0.24)]",
       )}
+      style={
+        active
+          ? {
+              background: "color-mix(in srgb, var(--brand-blue) 22%, white)",
+              boxShadow: "0 0 0 1px rgba(172,206,234,0.22)",
+            }
+          : undefined
+      }
     >
       {children}
     </button>

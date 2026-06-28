@@ -37,81 +37,104 @@
   --color-warning: var(--warning);
   --color-info: var(--info);
   --color-running: var(--running);
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
 }
 
 :root {
-  --radius: 0.5rem;
-  --background: oklch(0.995 0 0);
-  --foreground: oklch(0.18 0.01 260);
-  --ink: oklch(0.18 0.01 260);
-  --ink-muted: oklch(0.52 0.01 260);
-  --surface: oklch(0.985 0.002 260);
-  --surface-2: oklch(0.965 0.003 260);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.18 0.01 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.18 0.01 260);
-  --primary: oklch(0.22 0.02 260);
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.965 0.003 260);
-  --secondary-foreground: oklch(0.22 0.02 260);
-  --muted: oklch(0.965 0.003 260);
-  --muted-foreground: oklch(0.52 0.01 260);
-  --accent: oklch(0.955 0.005 260);
-  --accent-foreground: oklch(0.22 0.02 260);
-  --destructive: oklch(0.58 0.18 25);
-  --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.92 0.004 260);
-  --border-strong: oklch(0.86 0.005 260);
-  --input: oklch(0.92 0.004 260);
-  --ring: oklch(0.7 0.02 260);
-  --success: oklch(0.62 0.13 155);
-  --warning: oklch(0.72 0.14 75);
-  --info: oklch(0.58 0.11 240);
-  --running: oklch(0.58 0.11 240);
-  --chart-1: oklch(0.58 0.11 240);
-  --chart-2: oklch(0.62 0.13 155);
-  --chart-3: oklch(0.72 0.14 75);
-  --chart-4: oklch(0.55 0.15 300);
-  --chart-5: oklch(0.45 0.05 260);
-  --sidebar: oklch(0.985 0.002 260);
-  --sidebar-foreground: oklch(0.18 0.01 260);
-  --sidebar-primary: oklch(0.22 0.02 260);
-  --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.955 0.005 260);
-  --sidebar-accent-foreground: oklch(0.22 0.02 260);
-  --sidebar-border: oklch(0.92 0.004 260);
-  --sidebar-ring: oklch(0.7 0.02 260);
+  --font-ui: "Poppins", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
 
-  /* Stage tints — high transparency so they layer over neutral bg */
-  --stage-0-bg: oklch(0.88 0.09 70 / 0.28);
-  --stage-0-ring: oklch(0.72 0.13 70);
-  --stage-0-ink: oklch(0.45 0.13 70);
-  --stage-1-bg: oklch(0.86 0.09 230 / 0.28);
-  --stage-1-ring: oklch(0.62 0.13 230);
-  --stage-1-ink: oklch(0.40 0.13 230);
-  --stage-2-bg: oklch(0.86 0.09 305 / 0.28);
-  --stage-2-ring: oklch(0.60 0.15 305);
-  --stage-2-ink: oklch(0.40 0.15 305);
-  --stage-3-bg: oklch(0.88 0.10 155 / 0.30);
-  --stage-3-ring: oklch(0.60 0.13 155);
-  --stage-3-ink: oklch(0.38 0.13 155);
-  --stage-4-bg: oklch(0.88 0.09 15 / 0.28);
-  --stage-4-ring: oklch(0.64 0.16 15);
-  --stage-4-ink: oklch(0.45 0.16 15);
-  --stage-5-bg: oklch(0.86 0.09 270 / 0.28);
-  --stage-5-ring: oklch(0.55 0.15 270);
-  --stage-5-ink: oklch(0.40 0.15 270);
-  --stage-6-bg: oklch(0.86 0.09 195 / 0.30);
-  --stage-6-ring: oklch(0.55 0.13 195);
-  --stage-6-ink: oklch(0.38 0.13 195);
+  --radius: 1rem;
+  --background: #f7f7f7;
+  --foreground: #12161c;
+  --ink: #12161c;
+  --ink-muted: #64748b;
+  --surface: #f8fafc;
+  --surface-2: #f1f5f9;
+  --card: rgba(255, 255, 255, 0.9);
+  --card-foreground: #12161c;
+  --popover: rgba(255, 255, 255, 0.96);
+  --popover-foreground: #12161c;
+  --primary: #12161c;
+  --primary-foreground: #f8fafc;
+  --secondary: #eef3f6;
+  --secondary-foreground: #1f2937;
+  --muted: #eef3f6;
+  --muted-foreground: #64748b;
+  --accent: #edf4f8;
+  --accent-foreground: #12161c;
+  --destructive: #b75b45;
+  --destructive-foreground: #fffaf7;
+  --border: rgba(15, 23, 42, 0.08);
+  --border-strong: rgba(15, 23, 42, 0.14);
+  --input: rgba(15, 23, 42, 0.08);
+  --ring: #acceea;
+  --success: #5f8f88;
+  --warning: #9c7a19;
+  --info: #7b9ebf;
+  --running: #7b9ebf;
+  --chart-1: #7b9ebf;
+  --chart-2: #5f8f88;
+  --chart-3: #d58f68;
+  --chart-4: #d4b861;
+  --chart-5: #7f8ea3;
+  --sidebar: rgba(250, 251, 252, 0.92);
+  --sidebar-foreground: #12161c;
+  --sidebar-primary: #12161c;
+  --sidebar-primary-foreground: #f8fafc;
+  --sidebar-accent: rgba(172, 206, 234, 0.12);
+  --sidebar-accent-foreground: #12161c;
+  --sidebar-border: rgba(15, 23, 42, 0.08);
+  --sidebar-ring: #acceea;
+
+  --brand-blue: #acceea;
+  --brand-orange: #ff9270;
+  --brand-yellow: #ffe989;
+  --brand-mint: #e0f2f1;
+  --success-bg: rgba(224, 242, 241, 0.7);
+  --warning-bg: rgba(255, 233, 137, 0.42);
+  --review-bg: rgba(255, 146, 112, 0.12);
+  --success-text: #2f6f68;
+  --warning-text: #7a5a00;
+  --review-text: #9a4a32;
+  --code-bg: #101418;
+  --code-text: #f8fafc;
+  --shadow-soft: 0 12px 40px rgba(15, 23, 42, 0.06);
+  --shadow-floating: 0 20px 60px rgba(15, 23, 42, 0.12);
+  --shadow-quiet: 0 4px 16px rgba(15, 23, 42, 0.04);
+
+  --stage-0-bg: rgba(255, 233, 137, 0.18);
+  --stage-0-ring: #c9a63d;
+  --stage-0-ink: #846614;
+  --stage-1-bg: rgba(172, 206, 234, 0.18);
+  --stage-1-ring: #7b9ebf;
+  --stage-1-ink: #36556f;
+  --stage-2-bg: rgba(255, 228, 201, 0.22);
+  --stage-2-ring: #d8a57e;
+  --stage-2-ink: #7e5533;
+  --stage-3-bg: rgba(224, 242, 241, 0.4);
+  --stage-3-ring: #6f9a92;
+  --stage-3-ink: #3e6b63;
+  --stage-4-bg: rgba(255, 146, 112, 0.12);
+  --stage-4-ring: #d48064;
+  --stage-4-ink: #8c4833;
+  --stage-5-bg: rgba(220, 229, 239, 0.36);
+  --stage-5-ring: #8499af;
+  --stage-5-ink: #496175;
+  --stage-6-bg: rgba(228, 241, 236, 0.42);
+  --stage-6-ring: #84a59a;
+  --stage-6-ink: #48685f;
 }
 
 @layer base {
   * {
     border-color: var(--color-border);
+  }
+  *::selection {
+    background: color-mix(in srgb, var(--brand-blue) 45%, white);
+    color: var(--color-foreground);
   }
   html, body, #root {
     height: 100%;
@@ -119,10 +142,26 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
-    font-family: var(--font-sans);
+    background-image:
+      radial-gradient(circle at top left, rgba(224, 242, 241, 0.38), transparent 34%),
+      radial-gradient(circle at top right, rgba(172, 206, 234, 0.18), transparent 26%);
+    background-attachment: fixed;
+    font-family: var(--font-body);
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     font-size: 13px;
+    text-rendering: optimizeLegibility;
+  }
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand-blue);
+    outline-offset: 3px;
   }
 }
 
@@ -164,4 +203,35 @@
 @keyframes shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+@utility ui-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-ink-muted);
+}
+
+@utility glass-surface {
+  background: var(--card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border);
+}
+
+@utility code-surface {
+  background: var(--code-bg);
+  color: var(--code-text);
+  border: 1px solid color-mix(in srgb, white 8%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
 }
