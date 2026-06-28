@@ -675,6 +675,67 @@ def agent(
 
         asyncio.run(run_interactive())
 
+
+@app.command()
+def iterate(
+    project_id: str = typer.Option(..., "--project", "-p", help="Project ID (must contain experiment.yaml in its core dir)"),
+    config_file: str = typer.Option("experiment.yaml", "--config", "-c", help="Experiment spec file (relative to project core)"),
+    max_rounds: int = typer.Option(None, "--rounds", help="Override max_rounds from the config"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
+):
+    """Run a metric-driven autonomous experiment loop.
+
+    The agent reads an experiment.yaml in the project core, runs a baseline,
+    then repeatedly proposes a code change, runs the experiment, and keeps the
+    change only if the metric improves (otherwise git-reverts). Every round is
+    appended to results.tsv.
+    """
+    from loguru import logger
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level="DEBUG" if verbose else "INFO",
+        format="<dim>{time:HH:mm:ss}</dim> | <level>{level: <8}</level> | {message}",
+        colorize=True,
+    )
+
+    from config.loader import load_config
+    from providers.proxy import DynamicProviderProxy
+    from core.project import Project
+    from agent.scheduler.iterate import IterativeExperimentRunner, ExperimentConfig
+
+    config = load_config()
+    if not config.get_api_key():
+        console.print("[red]Error: No API key configured.[/red]")
+        raise typer.Exit(1)
+
+    proj = Project(project_id, config.workspace_path)
+    spec_path = proj.core / config_file
+    if not spec_path.exists():
+        console.print(f"[red]Error: {config_file} not found in project core ({proj.core}).[/red]")
+        console.print("[dim]Create an experiment.yaml describing goal/metric/run_command/editable_files.[/dim]")
+        raise typer.Exit(1)
+
+    exp_config = ExperimentConfig.load(spec_path)
+    if max_rounds is not None:
+        exp_config.max_rounds = max_rounds
+
+    provider = DynamicProviderProxy()
+    runner = IterativeExperimentRunner(
+        project=proj,
+        provider=provider,
+        model=None,  # resolved by the proxy
+        on_log=lambda m: console.print(m),
+    )
+
+    console.print(f"[bold green]🧪 Iterative experiment[/bold green] · project={project_id} · "
+                  f"metric={exp_config.metric} ({exp_config.direction}) · max_rounds={exp_config.max_rounds}")
+    try:
+        asyncio.run(runner.run(exp_config))
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrupted. Working tree left at the last committed state.[/yellow]")
+
+
 @app.command()
 def subagent(
     role: str = typer.Option(..., "--role", "-r", help="Role name of the agent"),
