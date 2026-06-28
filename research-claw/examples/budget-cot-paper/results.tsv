@@ -1,0 +1,16 @@
+strategy	budget	accuracy
+direct	30	0.2500
+direct	60	0.3000
+direct	120	0.3500
+direct	250	0.3500
+direct	500	0.3500
+cot	30	0.1000
+cot	60	0.2000
+cot	120	0.4500
+cot	250	0.7000
+cot	500	0.8000
+better_cot	30	0.4000
+better_cot	60	0.5500
+better_cot	120	0.7000
+better_cot	250	0.7800
+better_cot	500	0.8200
