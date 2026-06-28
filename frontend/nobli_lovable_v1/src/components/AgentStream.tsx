@@ -155,7 +155,7 @@ export function AgentStream({
                     />
                   )}
                   {s.output.kind === "experiment" && <ExperimentCard step={s} />}
-                  {s.output.kind === "iteration" && <IterationCard />}
+                  {s.output.kind === "iteration" && <IterationCard step={s} />}
                   {s.output.kind === "abstract" && <AbstractCard step={s} />}
                   {s.output.kind === "publish" && <PublishCard />}
                   {s.output.kind === "conferences" && <ConferencesCard />}

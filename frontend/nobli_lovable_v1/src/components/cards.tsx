@@ -694,7 +694,37 @@ function ResearchTimelineDialog({ open, onClose }: { open: boolean; onClose: () 
 }
 
 
-export function IterationCard() {
+type JudgeFeedbackOutput = {
+  verdict?: string;
+  strengths?: string[];
+  issues?: string[];
+  required_fixes?: string[];
+  approval_recommendation?: string;
+  risk_level?: string;
+  checked_against?: string[];
+};
+
+function parseJudgeFeedback(output?: string): JudgeFeedbackOutput | undefined {
+  if (!output) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const raw = parsed as Record<string, unknown>;
+    return {
+      verdict: typeof raw.verdict === "string" ? raw.verdict : undefined,
+      strengths: stringArray(raw.strengths),
+      issues: stringArray(raw.issues),
+      required_fixes: stringArray(raw.required_fixes),
+      approval_recommendation: typeof raw.approval_recommendation === "string" ? raw.approval_recommendation : undefined,
+      risk_level: typeof raw.risk_level === "string" ? raw.risk_level : undefined,
+      checked_against: stringArray(raw.checked_against),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function IterationCard({ step }: { step?: Step }) {
   const w = 460;
   const h = 160;
   const padL = 32;
@@ -710,14 +740,15 @@ export function IterationCard() {
   const sy = (y: number) => padT + (1 - (y - yMin) / (yMax - yMin)) * (h - padT - padB);
   const path = ITERATIONS.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.x)},${sy(p.y)}`).join(" ");
   const targetY = sy(0.7);
+  const feedback = parseJudgeFeedback(step?.tool?.output);
 
   return (
     <Card
-      title="AutoResearch progress"
-      subtitle="Iterations toward research objective"
+      title={feedback ? "Judge feedback" : "AutoResearch progress"}
+      subtitle={feedback?.approval_recommendation ?? "Iterations toward research objective"}
       headerRight={
         <span className="rounded-full bg-foreground px-2 py-0.5 text-[10.5px] font-medium text-background">
-          objective progress +34%
+          {feedback ? `${feedback.verdict ?? "needs_review"} · ${feedback.risk_level ?? "risk unknown"}` : "objective progress +34%"}
         </span>
       }
     >
@@ -778,15 +809,26 @@ export function IterationCard() {
 
       <div className="mt-3 space-y-1.5">
         <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
-          AI feedback on Version 1
+          {feedback ? "Judge review of ML blueprint" : "AI feedback on Version 1"}
         </div>
         <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3 text-[12px]">
-          <div className="text-foreground">
-            Faithfulness loss weight is too low; perturbation schedule clips at shift severity 0.4.
-          </div>
-          <div className="mt-1 text-[11px] text-ink-muted">
-            Suggested change: raise λ to 0.6 and extend schedule to 0.7 · expected Faithfulness@K +0.12 · confidence 0.78
-          </div>
+          {feedback ? (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <ListPanel title="Strengths" items={feedback.strengths} fallback="No strengths returned." />
+              <ListPanel title="Issues" items={feedback.issues} fallback="No issues returned." />
+              <ListPanel title="Required fixes" items={feedback.required_fixes} fallback="No required fixes returned." />
+              <ListPanel title="Checked against" items={feedback.checked_against} fallback="No check scope returned." />
+            </div>
+          ) : (
+            <>
+              <div className="text-foreground">
+                Faithfulness loss weight is too low; perturbation schedule clips at shift severity 0.4.
+              </div>
+              <div className="mt-1 text-[11px] text-ink-muted">
+                Suggested change: raise λ to 0.6 and extend schedule to 0.7 · expected Faithfulness@K +0.12 · confidence 0.78
+              </div>
+            </>
+          )}
           <div className="mt-2 flex gap-1.5">
             <Btn primary onClick={() => toast.success("Applied: λ=0.6, schedule→0.7")}>Accept</Btn>
             <Btn onClick={() => toast("Rejected AI suggestion.")}>Reject</Btn>
