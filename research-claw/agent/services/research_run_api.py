@@ -1004,6 +1004,156 @@ async def emit_experiment_accept_steps(run: ResearchRun, approved_step_id: str) 
     )
 
 
+def fallback_paper_draft(task: str, judge_step: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "title": "Toward an Agentic Research Workspace",
+        "abstract": f"We study the research direction implied by: {task}. The current system has produced a reviewed experiment blueprint and judge feedback, but no executed results yet.",
+        "outline": ["Introduction", "Related Work", "Method", "Planned Experiments", "Limitations"],
+        "claims": ["The workflow can turn research intent into a reviewed experiment plan."],
+        "limitations": ["No real experiment execution has been performed in this run."],
+        "next_writing_actions": ["replace mock results with executed experiment evidence", "expand related work from selected references"],
+        "rationale": "Fallback writing draft generated from run state.",
+    }
+
+
+def format_writing_summary(draft: Dict[str, Any]) -> str:
+    title = str(draft.get("title") or "Untitled draft")
+    abstract = str(draft.get("abstract") or "")
+    return f"Drafted paper narrative: {title}. {abstract[:120]}"
+
+
+async def run_paper_generation_agent(run: ResearchRun, judge_step: Dict[str, Any]) -> Dict[str, Any]:
+    compact_steps = [
+        {
+            "id": step.get("id"),
+            "title": step.get("title"),
+            "summary": step.get("summary"),
+            "tool_output": ((step.get("tool") or {}).get("output") or "")[:2200],
+        }
+        for step in run.steps
+        if step.get("id") in {"prepare-agent", "survey-agent", "experiment-plan", "ml-agent", "judge-feedback"}
+    ]
+    prompt = f"""
+You are Paper Generation Agent inside an AI research framework.
+Task:
+{run.task}
+
+Research workflow state:
+{json.dumps(compact_steps, ensure_ascii=False, indent=2)[:9000]}
+
+Return ONLY compact JSON with keys:
+title: string,
+abstract: string,
+outline: string[],
+claims: string[],
+limitations: string[],
+next_writing_actions: string[],
+rationale: string.
+Be honest that this run has generated plans/blueprints/feedback, not executed experiment results.
+"""
+    started = time.perf_counter()
+    provider = DynamicProviderProxy()
+    response = await provider.chat(
+        messages=[
+            {"role": "system", "content": "Return valid JSON only. Do not fabricate experiment results."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=1000,
+    )
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if response.finish_reason == "error" or not response.content:
+        draft = fallback_paper_draft(run.task, judge_step)
+        draft["_raw"] = response.content or "No LLM response"
+        draft["_status"] = "fallback"
+    else:
+        draft = extract_json_object(response.content)
+        if not draft:
+            draft = fallback_paper_draft(run.task, judge_step)
+            draft["_raw"] = response.content
+            draft["_status"] = "fallback"
+        else:
+            draft["_raw"] = response.content
+            draft["_status"] = "llm"
+    draft["elapsedMs"] = elapsed_ms
+    return draft
+
+
+async def emit_judge_accept_steps(run: ResearchRun, approved_step_id: str) -> None:
+    judge_step = find_step(run, approved_step_id)
+    await store.publish(
+        run,
+        {
+            "type": "step",
+            "step": {
+                "id": "writing-studio",
+                "stageIndex": 4,
+                "title": "Writing Studio preparing research narrative",
+                "summary": "Generating title, abstract, outline, claims, limitations, and writing actions.",
+                "duration": "queued",
+                "status": "running",
+                "tool": tool(
+                    "Paper Generation Agent",
+                    {"inputs": ["task", "prepare", "survey", "experiment_plan", "judge_feedback"]},
+                    "Generating paper narrative from reviewed workflow state.",
+                    "running",
+                ),
+                "output": {"kind": "abstract"},
+            },
+        },
+    )
+    draft = await run_paper_generation_agent(run, judge_step)
+    draft_output = json.dumps(
+        {k: v for k, v in draft.items() if k not in {"_raw", "elapsedMs"}},
+        ensure_ascii=False,
+        indent=2,
+    )
+    await store.update_step(
+        run,
+        "writing-studio",
+        {
+            "status": "done",
+            "duration": format_duration(draft["elapsedMs"]),
+            "summary": format_writing_summary(draft),
+            "tool": {
+                "status": "done",
+                "input": {"task": run.task, "approvedStep": approved_step_id},
+                "output": draft_output,
+                "sources": judge_step.get("sources", []),
+                "citations": (judge_step.get("tool") or {}).get("citations", []),
+                "timeMs": draft["elapsedMs"],
+            },
+            "output": {"kind": "abstract"},
+        },
+    )
+    memory_summary = {
+        "run_id": run.id,
+        "task": run.task,
+        "completed_steps": [step.get("id") for step in run.steps],
+        "draft_title": draft.get("title"),
+        "remaining_work": draft.get("next_writing_actions", []),
+    }
+    await store.publish(
+        run,
+        {
+            "type": "step",
+            "step": {
+                "id": "memory-update",
+                "stageIndex": 6,
+                "title": "Memory & Growing updated",
+                "summary": "Recorded run summary, draft title, and remaining writing actions.",
+                "duration": "0s",
+                "status": "done",
+                "tool": tool("Memory Tracker", {"scope": "research_run"}, json.dumps(memory_summary, ensure_ascii=False, indent=2)),
+                "output": {"kind": "memory"},
+            },
+        },
+    )
+    run.status = "complete"
+    run.paused_on_step_id = None
+    await store.publish(run, {"type": "status", "status": "complete"})
+
+
 def build_approval_steps(payload: ApprovalPayload) -> List[Dict[str, Any]]:
     if payload.action == "ask-revision":
         return [
@@ -1132,6 +1282,9 @@ async def approve_research_run(run_id: str, payload: ApprovalPayload):
         return {"status": run.status, "pausedOnStepId": run.paused_on_step_id}
     if payload.action == "accept" and payload.step_id == "experiment-plan":
         await emit_experiment_accept_steps(run, payload.step_id)
+        return {"status": run.status, "pausedOnStepId": run.paused_on_step_id}
+    if payload.action == "accept" and payload.step_id == "judge-feedback":
+        await emit_judge_accept_steps(run, payload.step_id)
         return {"status": run.status, "pausedOnStepId": run.paused_on_step_id}
 
     emitted_gate = False
