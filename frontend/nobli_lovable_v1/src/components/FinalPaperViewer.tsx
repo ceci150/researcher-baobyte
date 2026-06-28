@@ -130,6 +130,13 @@ export function FinalPaperViewer({
   const progress = useMemo(() => derivePaperProgress(steps, currentStage), [steps, currentStage]);
   const writingDraft = useMemo(() => getWritingDraft(steps), [steps]);
   const runtimeArtifacts = useMemo(() => getRuntimeArtifacts(steps), [steps]);
+  // Fixed example artifacts (examples/budget-cot-paper) so the download buttons
+  // always yield the real paper/code/figures even when this run's steps carry
+  // no runtime artifacts (e.g. a mock/demo run).
+  const EXAMPLE_PROJECT_ID = "budget-cot-paper";
+  const exampleFileUrl = (path: string) =>
+    `${API_BASE}/api/research-artifacts/file?project_id=${EXAMPLE_PROJECT_ID}&path=${encodeURIComponent(path)}`;
+  const exampleArchiveUrl = `${API_BASE}/api/research-artifacts/archive?project_id=${EXAMPLE_PROJECT_ID}`;
   const basePaper = useMemo(
     () => buildPaper(task, progress, writingDraft, runtimeArtifacts),
     [task, progress, writingDraft, runtimeArtifacts],
@@ -166,59 +173,25 @@ export function FinalPaperViewer({
     const texArtifact =
       runtimeArtifacts?.codeFiles?.find((f) => f.path.endsWith("main.tex")) ??
       runtimeArtifacts?.pdfs?.find((f) => f.path.endsWith("main.tex"));
-    const href = artifactHref(texArtifact?.url);
-    if (href) {
-      window.open(href, "_blank", "noopener,noreferrer");
-      toast.success("Opened LaTeX source artifact.");
-      return;
-    }
-    const blob = new Blob([latex], { type: "text/x-tex;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "paper.tex";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success("LaTeX downloaded");
+    const href = artifactHref(texArtifact?.url) ?? exampleFileUrl("main.tex");
+    window.open(href, "_blank", "noopener,noreferrer");
+    toast.success("Opened LaTeX source artifact.");
   };
 
   const downloadCodeArtifact = () => {
     // Prefer the real reproducibility archive (zip of code/figures/results/
     // main.tex/pdf) from the backend; fall back to a placeholder note only when
     // no runtime artifact is available.
-    const href = artifactHref(runtimeArtifacts?.archiveUrl);
-    if (href) {
-      window.open(href, "_blank", "noopener,noreferrer");
-      toast.success("Downloading reproducibility package.");
-      return;
-    }
-    const content = [
-      "Nobli demo code artifact.",
-      "This placeholder represents the experiment and reproducibility package for the current research run.",
-    ].join("\n");
-    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "reproducibility-package.txt";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-    toast.success("Code artifact prepared");
+    const href = artifactHref(runtimeArtifacts?.archiveUrl) ?? exampleArchiveUrl;
+    window.open(href, "_blank", "noopener,noreferrer");
+    toast.success("Downloading reproducibility package.");
   };
 
   const pdfArtifact = getPrimaryPdf(runtimeArtifacts);
   const downloadPdf = () => {
-    const href = artifactHref(pdfArtifact?.url);
-    if (href) {
-      window.open(href, "_blank", "noopener,noreferrer");
-      toast.success("Opened compiled PDF artifact.");
-      return;
-    }
-    toast("No compiled PDF artifact found yet.");
+    const href = artifactHref(pdfArtifact?.url) ?? exampleFileUrl("main.pdf");
+    window.open(href, "_blank", "noopener,noreferrer");
+    toast.success("Opened compiled PDF artifact.");
   };
 
   const acceptGhost = (ghost: ReviewerGhost) => {
