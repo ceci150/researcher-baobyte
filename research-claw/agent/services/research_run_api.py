@@ -8,16 +8,18 @@ be swapped from scripted middleware steps to live MetaChain/AgentLoop hooks.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import re
 import time
 import uuid
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent.tools.arxiv_search import ArxivSearchTool
@@ -168,6 +170,12 @@ def artifact_url(project_id: str, relative_path: str) -> str:
     from urllib.parse import quote
 
     return f"/api/research-artifacts/file?project_id={quote(project_id)}&path={quote(relative_path)}"
+
+
+def artifact_archive_url(project_id: str) -> str:
+    from urllib.parse import quote
+
+    return f"/api/research-artifacts/archive?project_id={quote(project_id)}"
 
 
 def read_text_snippet(path: Path, limit: int = 8000) -> str:
@@ -332,6 +340,7 @@ def discover_experiment_artifacts(project_id: Optional[str] = None) -> Dict[str,
         "codeFiles": code_files,
         "figures": figures[:20],
         "pdfs": pdfs[:20],
+        "archiveUrl": artifact_archive_url(selected_project_id),
         "message": "Executed experiment artifacts discovered from the Research Claw workspace.",
     }
 
@@ -1635,6 +1644,45 @@ async def get_research_artifact_file(
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="artifact not found")
     return FileResponse(str(target), filename=target.name)
+
+
+@research_run_router.get("/api/research-artifacts/archive")
+async def get_research_artifact_archive(project_id: str = Query(...)):
+    core = find_project_core(project_id)
+    if not core:
+        raise HTTPException(status_code=404, detail=f"project not found: {project_id}")
+    root = core.resolve()
+    artifact_paths: List[Path] = []
+    for pattern in [
+        "code/**/*",
+        "figures/**/*",
+        "main.pdf",
+        "paper.pdf",
+        "results.json",
+        "main.tex",
+    ]:
+        for path in root.glob(pattern):
+            if path.is_file() and not path.name.startswith("."):
+                artifact_paths.append(path.resolve())
+    unique_paths = sorted(set(artifact_paths), key=lambda item: str(item))
+    if not unique_paths:
+        raise HTTPException(status_code=404, detail="no artifact files found")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in unique_paths:
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                continue
+            archive.write(path, arcname=str(rel))
+    buffer.seek(0)
+    filename = f"{project_id}-artifacts.zip"
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @research_run_router.post("/api/research-runs/{run_id}/approval")

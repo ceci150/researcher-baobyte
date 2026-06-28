@@ -48,6 +48,7 @@ export type ExperimentArtifacts = {
   lastModified?: number;
   resultsPath?: string;
   results?: unknown;
+  archiveUrl?: string;
   codeFiles: ArtifactFile[];
   figures: ArtifactFile[];
   pdfs: ArtifactFile[];

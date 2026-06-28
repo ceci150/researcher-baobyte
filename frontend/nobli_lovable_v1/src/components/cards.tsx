@@ -601,9 +601,19 @@ export function CodeArtifactsCard({ step }: { step?: Step }) {
           : "No executed experiment artifacts found yet"
       }
       headerRight={
-        <span className="rounded-full bg-[var(--color-surface-2)] px-2.5 py-0.5 text-[10.5px] text-foreground">
-          {artifacts?.found ? "real workspace data" : "blueprint only"}
-        </span>
+        artifacts?.found && artifacts.archiveUrl ? (
+          <a
+            href={artifactHref(artifacts.archiveUrl)}
+            className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[10.5px] hover:bg-[var(--color-surface-2)]"
+          >
+            <Download className="h-3 w-3" />
+            Download package
+          </a>
+        ) : (
+          <span className="rounded-full bg-[var(--color-surface-2)] px-2.5 py-0.5 text-[10.5px] text-foreground">
+            {artifacts?.found ? "real workspace data" : "blueprint only"}
+          </span>
+        )
       }
     >
       {!artifacts?.found ? (
@@ -656,6 +666,29 @@ export function CodeArtifactsCard({ step }: { step?: Step }) {
               <pre className="max-h-[220px] overflow-auto rounded-md bg-[#111827] p-3 text-[10.5px] leading-relaxed text-slate-100">
                 {primaryCode.snippet ?? "No preview available."}
               </pre>
+            </div>
+          )}
+
+          {artifacts.codeFiles.length > 0 && (
+            <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+                <Code2 className="h-3.5 w-3.5" />
+                Code files
+              </div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                {artifacts.codeFiles.map((file) => (
+                  <a
+                    key={file.path}
+                    href={artifactHref(file.url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-[11.5px] hover:bg-[var(--color-surface)]"
+                  >
+                    <span className="min-w-0 truncate">{file.path}</span>
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+                  </a>
+                ))}
+              </div>
             </div>
           )}
 

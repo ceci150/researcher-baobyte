@@ -600,6 +600,7 @@ Endpoints:
 
 - `GET /api/research-artifacts?project_id=SamplingStudy`
 - `GET /api/research-artifacts/file?project_id=SamplingStudy&path=code/results.json`
+- `GET /api/research-artifacts/archive?project_id=SamplingStudy`
 
 The ML Agent step also includes the same payload as `step.artifacts` when the workflow reaches `ml-agent`.
 
@@ -611,6 +612,7 @@ type ExperimentArtifacts = {
   lastModified?: number;
   resultsPath?: string;
   results?: unknown;
+  archiveUrl?: string;
   codeFiles: Array<{
     path: string;
     size?: number;
@@ -634,5 +636,6 @@ type ExperimentArtifacts = {
 Frontend behavior:
 
 - If `found === true`, render the Code Artifacts panel from `codeFiles`, `results`, `figures`, and `pdfs`.
+- If `archiveUrl` is present, expose one package download containing code, results, figures, and paper PDFs.
 - If `found === false`, show blueprint-only status and do not render synthetic experiment metrics.
 - Judge feedback currently reviews the ML blueprint. It should only be treated as a review of completed experiments when `step.artifacts.found === true` and a metric mapper has converted `results.json` into a specific plotted series.
