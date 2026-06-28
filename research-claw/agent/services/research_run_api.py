@@ -8,17 +8,22 @@ be swapped from scripted middleware steps to live MetaChain/AgentLoop hooks.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import re
 import time
 import uuid
+import zipfile
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent.tools.arxiv_search import ArxivSearchTool
+from config.loader import get_config_service
 from providers.proxy import DynamicProviderProxy
 
 
@@ -29,6 +34,7 @@ class RunCreatePayload(BaseModel):
     task: str
     mode: str = "Explore"
     control_mode: str = "Full Automation"
+    project_id: Optional[str] = None
 
 
 class ApprovalPayload(BaseModel):
@@ -51,6 +57,7 @@ class ResearchRun:
     task: str
     mode: str
     control_mode: str
+    project_id: Optional[str] = None
     status: str = "running"
     steps: List[Dict[str, Any]] = field(default_factory=list)
     subscribers: List[asyncio.Queue] = field(default_factory=list)
@@ -68,6 +75,7 @@ class ResearchRunStore:
             task=payload.task,
             mode=payload.mode,
             control_mode=payload.control_mode,
+            project_id=payload.project_id,
         )
         self.runs[run.id] = run
         run.producer_task = asyncio.create_task(self._produce_scripted_steps(run))
@@ -143,6 +151,249 @@ def tool(name: str, input_: Dict[str, Any], output: str, status: str = "done") -
         "citations": [],
         "timeMs": 0,
         "status": status,
+    }
+
+
+ARTIFACT_CODE_EXTENSIONS = {".py", ".ipynb", ".yaml", ".yml", ".toml", ".json", ".md", ".tex", ".sh"}
+ARTIFACT_FIGURE_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".svg"}
+EXAMPLE_ARTIFACT_PROJECT_ID = "budget-cot-paper"
+RESEARCH_CLAW_ROOT = Path(__file__).resolve().parents[2]
+EXAMPLE_ARTIFACT_ROOT = RESEARCH_CLAW_ROOT / "examples" / EXAMPLE_ARTIFACT_PROJECT_ID
+
+
+def workspace_root() -> Path:
+    return get_config_service().config.workspace_path
+
+
+def safe_relative(path: Path, root: Path) -> str:
+    return str(path.resolve().relative_to(root.resolve()))
+
+
+def display_artifact_root(path: Path) -> str:
+    resolved = path.resolve()
+    for root in [workspace_root().resolve(), RESEARCH_CLAW_ROOT.resolve()]:
+        try:
+            return str(resolved.relative_to(root))
+        except ValueError:
+            continue
+    return resolved.name
+
+
+def artifact_url(project_id: str, relative_path: str) -> str:
+    from urllib.parse import quote
+
+    return f"/api/research-artifacts/file?project_id={quote(project_id)}&path={quote(relative_path)}"
+
+
+def artifact_archive_url(project_id: str) -> str:
+    from urllib.parse import quote
+
+    return f"/api/research-artifacts/archive?project_id={quote(project_id)}"
+
+
+def read_text_snippet(path: Path, limit: int = 8000) -> str:
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+    return text[:limit]
+
+
+def find_project_core(project_id: str) -> Optional[Path]:
+    if not project_id:
+        return None
+    if project_id == EXAMPLE_ARTIFACT_PROJECT_ID and EXAMPLE_ARTIFACT_ROOT.exists():
+        return EXAMPLE_ARTIFACT_ROOT.resolve()
+    root = workspace_root()
+    project_root = (root / project_id).resolve()
+    if not project_root.exists() or not project_root.is_dir():
+        return None
+    nested_core = (project_root / project_id).resolve()
+    if nested_core.exists() and nested_core.is_dir():
+        return nested_core
+    return project_root
+
+
+def candidate_project_cores(project_id: Optional[str] = None) -> List[tuple[str, Path]]:
+    root = workspace_root().resolve()
+    candidates: List[tuple[str, Path]] = []
+    if project_id:
+        core = find_project_core(project_id)
+        if core:
+            candidates.append((project_id, core))
+        return candidates
+
+    if EXAMPLE_ARTIFACT_ROOT.exists():
+        return [(EXAMPLE_ARTIFACT_PROJECT_ID, EXAMPLE_ARTIFACT_ROOT.resolve())]
+
+    if root.exists():
+        for child in root.iterdir():
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            nested_core = child / child.name
+            core = nested_core if nested_core.exists() and nested_core.is_dir() else child
+            item = (child.name, core.resolve())
+            if item not in candidates:
+                candidates.append(item)
+    return candidates
+
+
+def artifact_score(core: Path) -> tuple[int, float]:
+    score = 0
+    mtimes: List[float] = []
+    key_paths = [
+        core / "code" / "results.json",
+        core / "results.json",
+        core / "results.tsv",
+        core / "main.pdf",
+        core / "figures",
+        core / "code" / "run_experiment.py",
+        core / "experiment_matrix.py",
+        core / "plot.py",
+        core / "problems.py",
+    ]
+    for path in key_paths:
+        if path.exists():
+            score += 3 if path.name in {"results.json", "main.pdf"} else 1
+            try:
+                mtimes.append(path.stat().st_mtime)
+            except OSError:
+                pass
+    if (core / "code").exists() and any((core / "code").iterdir()):
+        score += 1
+    for pattern in ("figures/*", "code/*.py", "*.py", "*.pdf", "*.tsv"):
+        for path in core.glob(pattern):
+            if path.is_file():
+                score += 1
+                try:
+                    mtimes.append(path.stat().st_mtime)
+                except OSError:
+                    pass
+    return score, max(mtimes) if mtimes else 0.0
+
+
+def parse_results_json(path: Path) -> Optional[Any]:
+    if not path.exists() or path.stat().st_size > 1_000_000:
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def parse_results_tsv(path: Path) -> Optional[Any]:
+    if not path.exists() or path.stat().st_size > 1_000_000:
+        return None
+    try:
+        lines = [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    except Exception:
+        return None
+    if not lines:
+        return None
+    header = lines[0].split("\t")
+    rows = []
+    for line in lines[1:101]:
+        values = line.split("\t")
+        rows.append({header[index]: values[index] if index < len(values) else "" for index in range(len(header))})
+    return {"columns": header, "rows": rows, "row_count": max(0, len(lines) - 1)}
+
+
+def parse_results_file(path: Path) -> Optional[Any]:
+    if path.suffix.lower() == ".json":
+        return parse_results_json(path)
+    if path.suffix.lower() == ".tsv":
+        return parse_results_tsv(path)
+    return None
+
+
+def discover_experiment_artifacts(project_id: Optional[str] = None) -> Dict[str, Any]:
+    scored: List[tuple[int, float, str, Path]] = []
+    allowed_roots = [workspace_root().resolve()]
+    if EXAMPLE_ARTIFACT_ROOT.exists():
+        allowed_roots.append(EXAMPLE_ARTIFACT_ROOT.resolve())
+    for candidate_id, core in candidate_project_cores(project_id):
+        resolved_core = core.resolve()
+        if not any(resolved_core == allowed or allowed in resolved_core.parents for allowed in allowed_roots):
+            continue
+        score, mtime = artifact_score(core)
+        if score > 0:
+            scored.append((score, mtime, candidate_id, core))
+
+    if not scored:
+        return {
+            "found": False,
+            "projectId": project_id,
+            "message": "No executed experiment artifacts found in workspace yet.",
+            "codeFiles": [],
+            "figures": [],
+            "pdfs": [],
+            "results": None,
+        }
+
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    _, mtime, selected_project_id, core = scored[0]
+
+    code_files: List[Dict[str, Any]] = []
+    for base in [core / "code", core]:
+        if not base.exists() or not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            if not path.is_file() or path.name.startswith("."):
+                continue
+            if path.suffix.lower() not in ARTIFACT_CODE_EXTENSIONS:
+                continue
+            rel = safe_relative(path, core)
+            if any(item["path"] == rel for item in code_files):
+                continue
+            code_files.append(
+                {
+                    "path": rel,
+                    "size": path.stat().st_size,
+                    "url": artifact_url(selected_project_id, rel),
+                    "snippet": read_text_snippet(path),
+                }
+            )
+            if len(code_files) >= 20:
+                break
+        if len(code_files) >= 20:
+            break
+
+    figures: List[Dict[str, Any]] = []
+    pdfs: List[Dict[str, Any]] = []
+    for path in sorted(core.rglob("*")):
+        if not path.is_file() or path.name.startswith("."):
+            continue
+        rel = safe_relative(path, core)
+        suffix = path.suffix.lower()
+        item = {
+            "path": rel,
+            "size": path.stat().st_size,
+            "url": artifact_url(selected_project_id, rel),
+        }
+        if suffix in ARTIFACT_FIGURE_EXTENSIONS and ("figure" in rel.lower() or rel.startswith("figures/")):
+            figures.append(item)
+        if suffix == ".pdf" and (path.name == "main.pdf" or "paper" in path.name.lower()):
+            pdfs.append(item)
+
+    results_path = core / "code" / "results.json"
+    for candidate in [core / "code" / "results.json", core / "results.json", core / "results.tsv"]:
+        if candidate.exists():
+            results_path = candidate
+            break
+    results = parse_results_file(results_path) if results_path.exists() else None
+
+    return {
+        "found": True,
+        "projectId": selected_project_id,
+        "root": display_artifact_root(core),
+        "lastModified": int(mtime),
+        "resultsPath": safe_relative(results_path, core) if results_path.exists() else None,
+        "results": results,
+        "codeFiles": code_files,
+        "figures": figures[:20],
+        "pdfs": pdfs[:20],
+        "archiveUrl": artifact_archive_url(selected_project_id),
+        "message": "Executed experiment artifacts discovered from the Research Claw workspace.",
     }
 
 
@@ -1074,6 +1325,7 @@ async def emit_experiment_accept_steps(run: ResearchRun, approved_step_id: str) 
         },
     )
     blueprint = await run_ml_agent(run.task, plan_step)
+    runtime_artifacts = discover_experiment_artifacts(run.project_id)
     blueprint_output = json.dumps(
         {k: v for k, v in blueprint.items() if k not in {"_raw", "elapsedMs"}},
         ensure_ascii=False,
@@ -1094,6 +1346,8 @@ async def emit_experiment_accept_steps(run: ResearchRun, approved_step_id: str) 
                 "citations": (plan_step.get("tool") or {}).get("citations", []),
                 "timeMs": blueprint["elapsedMs"],
             },
+            "artifacts": runtime_artifacts,
+            "output": {"kind": "artifacts"},
         },
     )
 
@@ -1133,12 +1387,17 @@ async def emit_experiment_accept_steps(run: ResearchRun, approved_step_id: str) 
             "summary": format_judge_summary(feedback),
             "tool": {
                 "status": "done",
-                "input": {"task": run.task, "mlBlueprint": {k: v for k, v in blueprint.items() if k not in {"_raw", "elapsedMs"}}},
+                "input": {
+                    "task": run.task,
+                    "mlBlueprint": {k: v for k, v in blueprint.items() if k not in {"_raw", "elapsedMs"}},
+                    "runtimeArtifacts": runtime_artifacts,
+                },
                 "output": feedback_output,
                 "sources": plan_step.get("sources", []),
                 "citations": (plan_step.get("tool") or {}).get("citations", []),
                 "timeMs": feedback["elapsedMs"],
             },
+            "artifacts": runtime_artifacts,
             "gate": True,
             "gateLabel": "Approve iteration feedback",
             "gateHint": "Approve feedback before continuing to writing or further experiments.",
@@ -1171,12 +1430,14 @@ def format_writing_summary(draft: Dict[str, Any]) -> str:
 
 
 async def run_paper_generation_agent(run: ResearchRun, judge_step: Dict[str, Any]) -> Dict[str, Any]:
+    runtime_artifacts = judge_step.get("artifacts") or discover_experiment_artifacts(run.project_id)
     compact_steps = [
         {
             "id": step.get("id"),
             "title": step.get("title"),
             "summary": step.get("summary"),
             "tool_output": ((step.get("tool") or {}).get("output") or "")[:2200],
+            "artifacts": step.get("artifacts"),
         }
         for step in run.steps
         if step.get("id") in {"prepare-agent", "survey-agent", "experiment-plan", "ml-agent", "judge-feedback"}
@@ -1189,6 +1450,9 @@ Task:
 Research workflow state:
 {json.dumps(compact_steps, ensure_ascii=False, indent=2)[:9000]}
 
+Runtime artifacts:
+{json.dumps(runtime_artifacts, ensure_ascii=False, indent=2)[:3000]}
+
 Return ONLY compact JSON with keys:
 title: string,
 abstract: string,
@@ -1197,7 +1461,7 @@ claims: string[],
 limitations: string[],
 next_writing_actions: string[],
 rationale: string.
-Be honest that this run has generated plans/blueprints/feedback, not executed experiment results.
+Be honest about evidence: if runtime artifacts are not found, say this run has generated plans/blueprints/feedback but not executed experiment results. If runtime artifacts are found, say that executed artifacts are available, but do not invent metric values not present in results.json.
 """
     started = time.perf_counter()
     provider = DynamicProviderProxy()
@@ -1229,6 +1493,7 @@ Be honest that this run has generated plans/blueprints/feedback, not executed ex
 
 async def emit_judge_accept_steps(run: ResearchRun, approved_step_id: str) -> None:
     judge_step = find_step(run, approved_step_id)
+    runtime_artifacts = judge_step.get("artifacts") or discover_experiment_artifacts(run.project_id)
     await store.publish(
         run,
         {
@@ -1265,12 +1530,13 @@ async def emit_judge_accept_steps(run: ResearchRun, approved_step_id: str) -> No
             "summary": format_writing_summary(draft),
             "tool": {
                 "status": "done",
-                "input": {"task": run.task, "approvedStep": approved_step_id},
+                "input": {"task": run.task, "approvedStep": approved_step_id, "runtimeArtifacts": runtime_artifacts},
                 "output": draft_output,
                 "sources": judge_step.get("sources", []),
                 "citations": (judge_step.get("tool") or {}).get("citations", []),
                 "timeMs": draft["elapsedMs"],
             },
+            "artifacts": runtime_artifacts,
             "output": {"kind": "abstract"},
         },
     )
@@ -1406,6 +1672,84 @@ async def get_research_run(run_id: str):
         "steps": run.steps,
         "pausedOnStepId": run.paused_on_step_id,
     }
+
+
+@research_run_router.get("/api/research-artifacts")
+async def get_research_artifacts(project_id: Optional[str] = Query(default=None)):
+    return discover_experiment_artifacts(project_id)
+
+
+@research_run_router.get("/api/research-artifacts/file")
+async def get_research_artifact_file(
+    project_id: str = Query(...),
+    path: str = Query(...),
+):
+    core = find_project_core(project_id)
+    if not core:
+        raise HTTPException(status_code=404, detail=f"project not found: {project_id}")
+    root = core.resolve()
+    allowed_roots = [workspace_root().resolve()]
+    if EXAMPLE_ARTIFACT_ROOT.exists():
+        allowed_roots.append(EXAMPLE_ARTIFACT_ROOT.resolve())
+    if not any(root == allowed or allowed in root.parents for allowed in allowed_roots):
+        raise HTTPException(status_code=400, detail="project root is outside allowed artifact roots")
+    target = (root / path).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid artifact path") from None
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="artifact not found")
+    return FileResponse(str(target), filename=target.name)
+
+
+@research_run_router.get("/api/research-artifacts/archive")
+async def get_research_artifact_archive(project_id: str = Query(...)):
+    core = find_project_core(project_id)
+    if not core:
+        raise HTTPException(status_code=404, detail=f"project not found: {project_id}")
+    root = core.resolve()
+    allowed_roots = [workspace_root().resolve()]
+    if EXAMPLE_ARTIFACT_ROOT.exists():
+        allowed_roots.append(EXAMPLE_ARTIFACT_ROOT.resolve())
+    if not any(root == allowed or allowed in root.parents for allowed in allowed_roots):
+        raise HTTPException(status_code=400, detail="project root is outside allowed artifact roots")
+    artifact_paths: List[Path] = []
+    for pattern in [
+        "code/**/*",
+        "figures/**/*",
+        "*.py",
+        "main.pdf",
+        "paper.pdf",
+        "results.json",
+        "results.tsv",
+        "main.tex",
+        "extra_pkgs.tex",
+        "neurips.sty",
+        "README.md",
+    ]:
+        for path in root.glob(pattern):
+            if path.is_file() and not path.name.startswith("."):
+                artifact_paths.append(path.resolve())
+    unique_paths = sorted(set(artifact_paths), key=lambda item: str(item))
+    if not unique_paths:
+        raise HTTPException(status_code=404, detail="no artifact files found")
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in unique_paths:
+            try:
+                rel = path.relative_to(root)
+            except ValueError:
+                continue
+            archive.write(path, arcname=str(rel))
+    buffer.seek(0)
+    filename = f"{project_id}-artifacts.zip"
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @research_run_router.post("/api/research-runs/{run_id}/approval")

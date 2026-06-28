@@ -27,11 +27,33 @@ export type OutputKind =
   | "opportunities"
   | "approval-opportunities"
   | "experiment"
+  | "artifacts"
   | "iteration"
   | "abstract"
   | "publish"
   | "conferences"
   | "memory";
+
+export type ArtifactFile = {
+  path: string;
+  size?: number;
+  url?: string;
+  snippet?: string;
+};
+
+export type ExperimentArtifacts = {
+  found: boolean;
+  projectId?: string;
+  root?: string;
+  lastModified?: number;
+  resultsPath?: string;
+  results?: unknown;
+  archiveUrl?: string;
+  codeFiles: ArtifactFile[];
+  figures: ArtifactFile[];
+  pdfs: ArtifactFile[];
+  message?: string;
+};
 
 export type Step = {
   id: string;
@@ -43,6 +65,7 @@ export type Step = {
   tool?: ToolBlock;
   output?: { kind: OutputKind };
   sources?: string[];
+  artifacts?: ExperimentArtifacts;
 };
 
 export const EXAMPLE_TASKS = [
