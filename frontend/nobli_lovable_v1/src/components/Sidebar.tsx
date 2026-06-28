@@ -1,30 +1,15 @@
 import {
-  BookOpen,
-  CalendarClock,
-  FileText,
-  FlaskConical,
   Home,
   List,
-  PenLine,
-  Plus,
-  Settings,
 } from "lucide-react";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 type NavItem = { label: string; icon: React.ElementType; key: string };
 export type SidebarVariant = "expanded" | "collapsed" | "expanded-hover";
 
 const NAV: NavItem[] = [
-  { label: "Home", icon: Home, key: "home" },
-  { label: "New task", icon: Plus, key: "new" },
+  { label: "New task", icon: Home, key: "new" },
   { label: "All tasks", icon: List, key: "all" },
-  { label: "My Papers", icon: FileText, key: "papers" },
-  { label: "Experiments", icon: FlaskConical, key: "experiments" },
-  { label: "Writing Drafts", icon: PenLine, key: "drafts" },
-  { label: "Conference Watch", icon: CalendarClock, key: "conf" },
-  { label: "Memory & Growing", icon: BookOpen, key: "memory" },
-  { label: "Settings", icon: Settings, key: "settings" },
 ];
 
 export function Sidebar({
@@ -32,6 +17,7 @@ export function Sidebar({
   currentTaskTitle,
   currentTaskStatus = "idle",
   onHome,
+  onAllTasks,
   variant = "expanded",
   onMouseEnter,
   onMouseLeave,
@@ -40,6 +26,7 @@ export function Sidebar({
   currentTaskTitle?: string;
   currentTaskStatus?: "idle" | "running" | "waiting" | "complete" | "failed";
   onHome: () => void;
+  onAllTasks?: () => void;
   variant?: SidebarVariant;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
@@ -103,9 +90,8 @@ export function Sidebar({
                 key={item.key}
                 title={item.label}
                 onClick={() => {
-                  if (item.key === "home") onHome();
-                  else if (item.key === "new") onHome();
-                  else toast(`${item.label} · coming soon in this demo`);
+                  if (item.key === "new") onHome();
+                  else onAllTasks?.();
                 }}
                 className={cn(
                   "rounded-xl text-[12.5px] text-ink-muted transition-colors",
@@ -164,7 +150,6 @@ export function Sidebar({
             </div>
           </div>
         )}
-
         <div
           className={cn(
             "mt-auto border-t border-border py-3",

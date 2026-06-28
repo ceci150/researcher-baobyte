@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { ABSTRACT_DRAFT, EXPERIMENT, ITERATIONS, LITERATURE, type Step } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 
-type Tab = "Paper" | "PDF Preview" | "LaTeX";
+type Tab = "PDF" | "LaTeX" | "Code";
 type PassageId = "abstract" | "intro" | "related" | "method" | "experiments" | "discussion" | "conclusion";
 
 type Reference = {
@@ -103,8 +103,7 @@ export function FinalPaperViewer({
   currentStage: number;
   steps: Step[];
 }) {
-  const [tab, setTab] = useState<Tab>("PDF Preview");
-  const [copied, setCopied] = useState(false);
+  const [tab, setTab] = useState<Tab>("PDF");
   const [lensOpen, setLensOpen] = useState(false);
   const [selectedPassageId, setSelectedPassageId] = useState<PassageId | null>(null);
   const [acceptedGhosts, setAcceptedGhosts] = useState<Partial<Record<PassageId, AcceptedGhost>>>({});
@@ -113,7 +112,7 @@ export function FinalPaperViewer({
     setAcceptedGhosts({});
     setSelectedPassageId(null);
     setLensOpen(false);
-    setTab("PDF Preview");
+    setTab("PDF");
   }, [task]);
 
   const progress = useMemo(() => derivePaperProgress(steps, currentStage), [steps, currentStage]);
@@ -138,9 +137,38 @@ export function FinalPaperViewer({
   const copyLatex = async () => {
     try {
       await navigator.clipboard.writeText(latex);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      toast.success("LaTeX copied");
     } catch {}
+  };
+
+  const downloadLatex = () => {
+    const blob = new Blob([latex], { type: "text/x-tex;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "faithful-cbm-paper.tex";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success("LaTeX downloaded");
+  };
+
+  const downloadCodeArtifact = () => {
+    const content = [
+      "Nobli demo code artifact.",
+      "This placeholder represents the experiment and reproducibility package for the current research run.",
+    ].join("\n");
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "faithful-cbm-reproducibility-package.txt";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success("Code artifact prepared");
   };
 
   const acceptGhost = (ghost: ReviewerGhost) => {
@@ -159,11 +187,11 @@ export function FinalPaperViewer({
 
   return (
     <aside
-      className="hidden h-full w-[392px] shrink-0 flex-col border-l border-border bg-[var(--color-sidebar)] min-[1101px]:flex"
+      className="hidden h-full w-[min(50vw,720px)] min-w-[420px] shrink-0 flex-col border-l border-border bg-[var(--color-sidebar)] min-[1101px]:flex"
       style={{ boxShadow: "inset 1px 0 0 rgba(255,255,255,0.48)" }}
     >
-      <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-        <div className="flex items-center gap-2">
+      <div className="border-b border-border px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
           <div
             className="text-[12px] font-semibold tracking-tight text-foreground"
             style={{ fontFamily: "var(--font-ui)" }}
@@ -174,16 +202,10 @@ export function FinalPaperViewer({
             {completeness}% drafted
           </span>
         </div>
-        <div className="flex items-center gap-1">
-          <ActionBtn label="Laureate Lens" onClick={() => setLensOpen((v) => !v)} />
-          <ActionBtn label="Download PDF" onClick={() => toast.success("PDF prepared")} />
-          <ActionBtn label="Overleaf" onClick={() => toast.success("Overleaf handoff prepared")} />
-          <ActionBtn label={copied ? "Copied" : "Copy LaTeX"} onClick={copyLatex} />
-        </div>
       </div>
 
       <div className="flex items-center gap-0 border-b border-border bg-[var(--color-sidebar)] px-3">
-        {(["Paper", "PDF Preview", "LaTeX"] as Tab[]).map((t) => (
+        {(["PDF", "LaTeX", "Code"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -203,42 +225,30 @@ export function FinalPaperViewer({
             {t}
           </button>
         ))}
+        <button
+          onClick={() => setLensOpen((v) => !v)}
+          className={cn(
+            "ml-1 rounded-full px-3 py-2 text-[11.5px] transition-colors",
+            lensOpen ? "text-foreground" : "text-ink-muted hover:text-foreground",
+          )}
+          style={
+            lensOpen
+              ? {
+                  background: "color-mix(in srgb, var(--brand-blue) 18%, transparent)",
+                  fontFamily: "var(--font-ui)",
+                }
+              : { fontFamily: "var(--font-ui)" }
+          }
+        >
+          Laureate Lens
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin bg-[var(--color-surface-2)] p-4">
         <div className="space-y-3">
-          <MutationPanel
-            feed={paper.artifacts.mutationFeed}
-            venueChecks={paper.artifacts.venueChecks}
-            packageState={paper.artifacts.packageState}
-          />
-
           {lensOpen && <LaureateLensPanel insights={laureateLens} />}
 
-          {tab === "Paper" && !selectedPassage && (
-            <div className="rounded-[18px] border border-border bg-card px-3 py-2.5 text-[11.5px] text-ink-muted">
-              Click any paragraph in the paper to summon Reviewer Ghosts and apply a rewrite.
-            </div>
-          )}
-
-          {tab === "Paper" && selectedPassage && (
-            <ReviewerGhostsPanel
-              ghosts={reviewerGhosts}
-              selectedPassageLabel={selectedPassage.heading}
-              acceptedReviewer={acceptedGhosts[selectedPassage.id]?.reviewer}
-              onAccept={acceptGhost}
-            />
-          )}
-
-          {tab === "Paper" && (
-            <PaperPage
-              paper={paper}
-              selectedPassageId={selectedPassageId}
-              onSelectPassage={setSelectedPassageId}
-            />
-          )}
-
-          {tab === "PDF Preview" && (
+          {tab === "PDF" && (
             <div className="space-y-3">
               <PaperPage
                 paper={paper}
@@ -256,7 +266,15 @@ export function FinalPaperViewer({
             </div>
           )}
 
-          {tab === "LaTeX" && <LatexView source={latex} />}
+          {tab === "LaTeX" && (
+            <LatexView
+              source={latex}
+              onCopy={copyLatex}
+              onDownload={downloadLatex}
+            />
+          )}
+
+          {tab === "Code" && <CodeArtifactCard onDownload={downloadCodeArtifact} />}
         </div>
       </div>
 
@@ -280,79 +298,34 @@ function ActionBtn({ label, onClick }: { label: string; onClick?: () => void }) 
   );
 }
 
-function MutationPanel({
-  feed,
-  venueChecks,
-  packageState,
-}: {
-  feed: MutationItem[];
-  venueChecks: VenueCheck[];
-  packageState: string;
-}) {
+function CodeArtifactCard({ onDownload }: { onDownload: () => void }) {
   return (
     <section
-      className="rounded-[22px] border border-border bg-card p-3"
+      className="rounded-[22px] border border-border bg-card p-4"
       style={{ boxShadow: "var(--shadow-soft)" }}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div
-            className="text-[10.5px] font-medium uppercase tracking-[0.12em] text-ink-muted"
-            style={{ fontFamily: "var(--font-ui)" }}
-          >
-            Live Paper Mutation
-          </div>
-          <div className="mt-1 text-[13px] leading-[1.55] text-foreground">
-            The paper updates as the writing workflow lands new artifacts.
-          </div>
+      <div
+        className="text-[12px] font-semibold text-foreground"
+        style={{ fontFamily: "var(--font-ui)" }}
+      >
+        Code artifact
+      </div>
+      <div className="mt-3 rounded-[18px] border border-border bg-[var(--color-surface)] px-3 py-3">
+        <div
+          className="text-[12px] font-medium text-foreground"
+          style={{ fontFamily: "var(--font-ui)" }}
+        >
+          faithful-cbm-reproducibility-package.txt
         </div>
-        <div className="rounded-full border border-border bg-[var(--color-surface)] px-2 py-1 text-[10.5px] text-foreground">
-          {packageState}
-        </div>
+        <div className="mt-1 text-[11px] text-ink-muted">Demo code artifact</div>
       </div>
-
-      <div className="mt-3 space-y-2">
-        {feed.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-start gap-2 rounded-2xl border border-border bg-[var(--color-surface)] px-3 py-2.5"
-          >
-            <span
-              className={cn(
-                "mt-0.5 inline-flex h-2 w-2 rounded-full",
-                item.status === "done" && "bg-[var(--color-success)]",
-                item.status === "live" && "bg-[var(--stage-0-ring)]",
-                item.status === "pending" && "bg-border",
-              )}
-            />
-            <div className="min-w-0 flex-1">
-              <div className="text-[12px] font-medium text-foreground">{item.title}</div>
-              <div className="text-[11px] leading-[1.55] text-ink-muted">{item.note}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        {venueChecks.map((check) => (
-          <div
-            key={check.label}
-            className="flex items-center gap-2 rounded-2xl border border-border bg-card px-2.5 py-2 text-[11px]"
-          >
-            <span
-              className={cn(
-                "grid h-4 w-4 place-items-center rounded-full border",
-                check.done
-                  ? "border-transparent bg-[var(--success-bg)] text-[var(--success-text)]"
-                  : "border-border text-ink-muted",
-              )}
-            >
-              {check.done ? <Check className="h-2.5 w-2.5" /> : <span className="h-1.5 w-1.5 rounded-full bg-border" />}
-            </span>
-            <span className={check.done ? "text-foreground" : "text-ink-muted"}>{check.label}</span>
-          </div>
-        ))}
-      </div>
+      <button
+        onClick={onDownload}
+        className="mt-4 inline-flex rounded-full border border-border bg-[var(--color-surface)] px-3 py-1.5 text-[11.5px] text-foreground transition-colors hover:bg-[var(--color-sidebar-accent)]"
+        style={{ fontFamily: "var(--font-ui)" }}
+      >
+        Download code
+      </button>
     </section>
   );
 }
@@ -1130,24 +1103,49 @@ ${refs}
 \\end{document}`;
 }
 
-function LatexView({ source }: { source: string }) {
+function LatexView({
+  source,
+  onCopy,
+  onDownload,
+}: {
+  source: string;
+  onCopy: () => void;
+  onDownload: () => void;
+}) {
   return (
-    <pre
-      className="overflow-x-auto rounded-[18px] border p-3 scrollbar-thin code-surface"
-      style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, lineHeight: 1.55 }}
-    >
-      {source.split("\n").map((line, i) => (
-        <div key={i} className="flex">
-          <span
-            className="select-none pr-3 text-right tabular-nums text-white/30"
-            style={{ minWidth: 28 }}
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-3 rounded-[18px] border border-border bg-card px-3 py-2.5">
+        <div>
+          <div
+            className="text-[11.5px] font-medium text-foreground"
+            style={{ fontFamily: "var(--font-ui)" }}
           >
-            {i + 1}
-          </span>
-          <span style={{ whiteSpace: "pre-wrap" }}>{colorizeLatex(line)}</span>
+            LaTeX source
+          </div>
+          <div className="text-[10.5px] text-ink-muted">faithful-cbm-paper.tex</div>
         </div>
-      ))}
-    </pre>
+        <div className="flex items-center gap-1.5">
+          <ActionBtn label="Copy LaTeX" onClick={onCopy} />
+          <ActionBtn label="Download LaTeX" onClick={onDownload} />
+        </div>
+      </div>
+      <pre
+        className="overflow-x-auto rounded-[18px] border p-3 scrollbar-thin code-surface"
+        style={{ fontFamily: "var(--font-mono)", fontSize: 10.5, lineHeight: 1.55 }}
+      >
+        {source.split("\n").map((line, i) => (
+          <div key={i} className="flex">
+            <span
+              className="select-none pr-3 text-right tabular-nums text-white/30"
+              style={{ minWidth: 28 }}
+            >
+              {i + 1}
+            </span>
+            <span style={{ whiteSpace: "pre-wrap" }}>{colorizeLatex(line)}</span>
+          </div>
+        ))}
+      </pre>
+    </div>
   );
 }
 

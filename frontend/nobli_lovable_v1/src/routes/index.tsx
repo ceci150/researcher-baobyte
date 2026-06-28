@@ -1,12 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { HomeScreen } from "@/components/HomeScreen";
+import { AllTasksView } from "@/components/AllTasksView";
 import { ProcessBar } from "@/components/ProcessBar";
 import { AgentStream } from "@/components/AgentStream";
 import { DetailPanel } from "@/components/DetailPanel";
 import { FinalPaperViewer } from "@/components/FinalPaperViewer";
 import { AgentControl, type AgentMode } from "@/components/AgentControl";
+import { addCompletedTask } from "@/lib/demo-task-storage";
 import type { Step } from "@/lib/mock-data";
 import {
   createResearchRun,
@@ -18,6 +20,7 @@ import {
 } from "@/lib/research-run-service";
 
 type WorkflowStage = "home" | "explore" | "survey" | "experiment" | "write" | "publish";
+type WorkspaceView = "new" | "all";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -34,6 +37,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Index() {
+  const [view, setView] = useState<WorkspaceView>("new");
   const [task, setTask] = useState<string | null>(null);
   const [steps, setSteps] = useState<Step[]>([]);
   const [pending, setPending] = useState(false);
@@ -46,17 +50,23 @@ function Index() {
   const [elapsed, setElapsed] = useState(0);
   const [stageJump, setStageJump] = useState<number | undefined>();
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
+  const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
   const [selectedToolStepId, setSelectedToolStepId] = useState<string | undefined>();
+  const savedRunIdsRef = useRef<Set<string>>(new Set());
 
   const startRun = useCallback(async (t: string) => {
+    setView("new");
     setTask(t);
     setSteps([]);
     setPaused(false);
     setPending(true);
+    setRunId(undefined);
     setRunStatus("running");
     setApprovedOpportunity(undefined);
     setSelectedOpportunity(undefined);
+    setSelectedToolStepId(undefined);
     setElapsed(0);
+
     try {
       const run = await createResearchRun({
         task: t,
@@ -67,6 +77,7 @@ function Index() {
       setRunStatus(run.status);
     } catch (error) {
       setPending(false);
+      setRunId(undefined);
       setRunStatus("failed");
       setSteps([
         {
@@ -127,7 +138,25 @@ function Index() {
     );
   }, [runId, applyRunEvent]);
 
-  // Elapsed timer
+  const showHome = useCallback(() => {
+    setView("new");
+    setTask(null);
+    setPending(false);
+    setPaused(false);
+    setRunId(undefined);
+    setRunStatus("idle");
+    setSteps([]);
+    setApprovedOpportunity(undefined);
+    setSelectedOpportunity(undefined);
+    setSelectedToolStepId(undefined);
+    setElapsed(0);
+    setStageJump(undefined);
+  }, []);
+
+  const showAllTasks = useCallback(() => {
+    setView("all");
+  }, []);
+
   useEffect(() => {
     if (!task) return;
     const id = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -174,13 +203,17 @@ function Index() {
   const currentStage = steps.length ? steps[steps.length - 1].stageIndex : 0;
   const contextualDetailStep = useMemo(() => {
     if (!steps.length) return undefined;
+    const selectedStep = selectedToolStepId
+      ? steps.find((step) => step.id === selectedToolStepId && step.tool)
+      : undefined;
+    if (selectedStep) return selectedStep;
     return (
       [...steps]
         .reverse()
         .find((step) => step.stageIndex === currentStage && step.tool) ??
       [...steps].reverse().find((step) => step.tool)
     );
-  }, [steps, currentStage]);
+  }, [steps, currentStage, selectedToolStepId]);
   const workflowStage = getWorkflowStage(task, currentStage);
   const isWorkflowRunning = workflowStage !== "home";
   const showPaperPanel = workflowStage === "write" || workflowStage === "publish";
@@ -199,14 +232,15 @@ function Index() {
   const status = runStatus === "failed"
     ? "Connection failed"
     : paused
-    ? "Awaiting human approval"
-    : pending
-      ? mode === "Discuss"
-        ? "Asking before next step"
-        : "Working autonomously"
-      : task
-        ? "Run complete"
-        : "Idle";
+      ? "Awaiting human approval"
+      : pending
+        ? mode === "Discuss"
+          ? "Asking before next step"
+          : "Working autonomously"
+        : task
+          ? "Run complete"
+          : "Idle";
+  const isRunComplete = !!task && runStatus === "complete" && !pending && !paused;
 
   useEffect(() => {
     if (!isWorkflowRunning && isSidebarHovered) {
@@ -214,11 +248,37 @@ function Index() {
     }
   }, [isSidebarHovered, isWorkflowRunning]);
 
+  useEffect(() => {
+    if (!task || !runId || runStatus !== "complete" || pending) return;
+    if (savedRunIdsRef.current.has(runId)) return;
+    addCompletedTask(task, runId);
+    savedRunIdsRef.current.add(runId);
+    setHistoryRefreshToken((value) => value + 1);
+  }, [pending, runId, runStatus, task]);
+
+  if (view === "all") {
+    return (
+      <div className="flex h-screen w-full bg-background text-foreground">
+        <Sidebar
+          active="all"
+          currentTaskTitle={task ?? undefined}
+          currentTaskStatus={runStatus}
+          onHome={showHome}
+          onAllTasks={showAllTasks}
+          variant={isWorkflowRunning ? sidebarVariant : "expanded"}
+          onMouseEnter={() => setIsSidebarHovered(true)}
+          onMouseLeave={() => setIsSidebarHovered(false)}
+        />
+        <AllTasksView refreshToken={historyRefreshToken} />
+      </div>
+    );
+  }
+
   if (!task) {
     return (
       <div className="flex h-screen w-full bg-background text-foreground">
-        <Sidebar active="home" variant="expanded" onHome={() => setTask(null)} />
-        <main className="min-w-0 flex-1 overflow-hidden">
+        <Sidebar active="new" variant="expanded" onHome={showHome} onAllTasks={showAllTasks} />
+        <main className="min-w-0 flex-1 overflow-y-auto">
           <HomeScreen onSubmit={startRun} />
         </main>
       </div>
@@ -231,7 +291,8 @@ function Index() {
         active="new"
         currentTaskTitle={task}
         currentTaskStatus={runStatus}
-        onHome={() => setTask(null)}
+        onHome={showHome}
+        onAllTasks={showAllTasks}
         variant={sidebarVariant}
         onMouseEnter={() => setIsSidebarHovered(true)}
         onMouseLeave={() => setIsSidebarHovered(false)}
@@ -262,6 +323,24 @@ function Index() {
           mode={mode}
         />
         <AgentControl mode={mode} setMode={setMode} onSendFollowUp={handleFollowUp} />
+        {isRunComplete && (
+          <div className="px-5 pb-4">
+            <div className="mx-auto max-w-[980px] text-[12px] text-ink-muted">
+              <span>Run complete</span>
+              <span> · </span>
+              <span>Saved to All tasks</span>
+              <span> · </span>
+              <button
+                type="button"
+                onClick={showAllTasks}
+                className="rounded-full text-[12px] text-foreground underline underline-offset-4 transition-colors hover:text-[var(--stage-1-ink)]"
+                style={{ fontFamily: "var(--font-ui)" }}
+              >
+                View Gallery
+              </button>
+            </div>
+          </div>
+        )}
       </main>
       {showPaperPanel ? (
         <FinalPaperViewer task={task} currentStage={currentStage} steps={steps} />
