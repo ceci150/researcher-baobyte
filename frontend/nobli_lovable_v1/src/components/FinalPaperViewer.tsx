@@ -84,6 +84,16 @@ type PaperProgress = {
   hasMemorySync: boolean;
 };
 
+type WritingDraftOutput = {
+  title?: string;
+  abstract?: string;
+  outline?: string[];
+  claims?: string[];
+  limitations?: string[];
+  next_writing_actions?: string[];
+  rationale?: string;
+};
+
 const PASSAGE_LABEL: Record<PassageId, string> = {
   abstract: "Abstract",
   intro: "Introduction",
@@ -117,7 +127,8 @@ export function FinalPaperViewer({
   }, [task]);
 
   const progress = useMemo(() => derivePaperProgress(steps, currentStage), [steps, currentStage]);
-  const basePaper = useMemo(() => buildPaper(task, progress), [task, progress]);
+  const writingDraft = useMemo(() => getWritingDraft(steps), [steps]);
+  const basePaper = useMemo(() => buildPaper(task, progress, writingDraft), [task, progress, writingDraft]);
   const paper = useMemo(() => applyAcceptedGhosts(basePaper, acceptedGhosts), [basePaper, acceptedGhosts]);
   const completeness = useMemo(() => {
     const base = Math.min(100, Math.round(((currentStage + 1) / 7) * 100));
@@ -792,18 +803,44 @@ function PassageButton({
 function derivePaperProgress(steps: Step[], currentStage: number): PaperProgress {
   const ids = new Set(steps.map((step) => step.id));
   return {
-    hasExperimentPlan: ids.has("s6") || currentStage >= 2,
-    hasIterationResults: ids.has("s7") || currentStage >= 3,
-    hasAbstractDraft: ids.has("s8") || currentStage >= 4,
-    hasLaunchpad: ids.has("s9") || currentStage >= 5,
-    hasConferenceMatch: ids.has("s10") || currentStage >= 5,
-    hasMemorySync: ids.has("s11") || currentStage >= 6,
+    hasExperimentPlan: ids.has("experiment-plan") || ids.has("s6") || currentStage >= 2,
+    hasIterationResults: ids.has("judge-feedback") || ids.has("s7") || currentStage >= 3,
+    hasAbstractDraft: ids.has("writing-studio") || ids.has("s8") || currentStage >= 4,
+    hasLaunchpad: ids.has("writing-studio") || ids.has("s9") || currentStage >= 5,
+    hasConferenceMatch: ids.has("writing-studio") || ids.has("s10") || currentStage >= 5,
+    hasMemorySync: ids.has("memory-update") || ids.has("s11") || currentStage >= 6,
   };
 }
 
-function buildPaper(task: string, progress: PaperProgress): Paper {
+function getWritingDraft(steps: Step[]): WritingDraftOutput | undefined {
+  const step = [...steps].reverse().find((item) => item.id === "writing-studio");
+  const output = step?.tool?.output;
+  if (!output) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const raw = parsed as Record<string, unknown>;
+    const strings = (value: unknown) =>
+      Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+        : undefined;
+    return {
+      title: typeof raw.title === "string" ? raw.title : undefined,
+      abstract: typeof raw.abstract === "string" ? raw.abstract : undefined,
+      outline: strings(raw.outline),
+      claims: strings(raw.claims),
+      limitations: strings(raw.limitations),
+      next_writing_actions: strings(raw.next_writing_actions),
+      rationale: typeof raw.rationale === "string" ? raw.rationale : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function buildPaper(task: string, progress: PaperProgress, draft?: WritingDraftOutput): Paper {
   const lower = task.toLowerCase();
-  const inferred =
+  const inferred = draft?.title ?? (
     lower.includes("interpret") || lower.includes("xai") || lower.includes("explain")
       ? "Faithful-CBM: Optimizing, Not Only Measuring, Faithfulness in Vision Explainability"
       : lower.includes("reasoning")
@@ -814,11 +851,21 @@ function buildPaper(task: string, progress: PaperProgress): Paper {
             ? "Toward an Agentic Research Workspace: From Idea to Publication"
             : task.length > 80
               ? task.slice(0, 80) + "..."
-              : task || "Faithful-CBM: Optimizing Faithfulness in Vision Explainability";
+              : task || "Faithful-CBM: Optimizing Faithfulness in Vision Explainability"
+  );
 
-  const abstractText = progress.hasLaunchpad
+  const abstractText = draft?.abstract ?? (progress.hasLaunchpad
     ? "We introduce Faithful-CBM, a concept bottleneck model trained with an explicit perturbation-consistency objective. Across three vision benchmarks spanning concept recognition, distribution shift, and explanation faithfulness, Faithful-CBM improves Faithfulness@K by 34% over Grad-CAM and 19% over vanilla CBM while preserving classification accuracy. We further release a venue-ready evaluation suite, a reproducibility checklist, and submission artifacts that make the benchmark directly reusable by future XAI work."
-    : ABSTRACT_DRAFT;
+    : ABSTRACT_DRAFT);
+  const claimText = draft?.claims?.length
+    ? `Writing Studio claims: ${draft.claims.join(" ")}`
+    : undefined;
+  const limitationText = draft?.limitations?.length
+    ? `Limitations: ${draft.limitations.join(" ")}`
+    : undefined;
+  const nextActionText = draft?.next_writing_actions?.length
+    ? `Next writing actions: ${draft.next_writing_actions.join(" ")}`
+    : undefined;
 
   const references: Reference[] = LITERATURE.slice(0, progress.hasLaunchpad ? 4 : 3).map((item, index) => ({
     id: index + 1,
@@ -875,16 +922,16 @@ function buildPaper(task: string, progress: PaperProgress): Paper {
       {
         id: "discussion",
         heading: "5  Discussion",
-        body: progress.hasLaunchpad
+        body: claimText ?? (progress.hasLaunchpad
           ? "Our results suggest that explicit faithfulness regularization yields explanations that remain stable under distribution shift without sacrificing classification accuracy. The paper now frames this as an evaluation-first benchmark contribution, which better matches top-tier venue expectations around rigorous, reusable evidence."
-          : "Our results suggest that explicit faithfulness regularization yields explanations that remain stable under distribution shift, without sacrificing classification accuracy. The gap between Grad-CAM and Faithful-CBM widens precisely where post-hoc methods are weakest, namely on Waterbirds-style spurious-correlation regimes.",
+          : "Our results suggest that explicit faithfulness regularization yields explanations that remain stable under distribution shift, without sacrificing classification accuracy. The gap between Grad-CAM and Faithful-CBM widens precisely where post-hoc methods are weakest, namely on Waterbirds-style spurious-correlation regimes."),
       },
       {
         id: "conclusion",
         heading: "6  Conclusion",
-        body: progress.hasConferenceMatch
+        body: [limitationText, nextActionText].filter(Boolean).join(" ") || (progress.hasConferenceMatch
           ? "We presented Faithful-CBM together with a reproducibility protocol, venue packaging checklist, and reusable evaluation harness. The artifact now reads less like an isolated experiment and more like a submission-ready research contribution."
-          : "We presented Faithful-CBM, the first concept bottleneck model trained with an explicit perturbation-consistency objective, together with a reproducibility protocol grounded in an audit of forty XAI papers. We release code, datasets, and the evaluation harness.",
+          : "We presented Faithful-CBM, the first concept bottleneck model trained with an explicit perturbation-consistency objective, together with a reproducibility protocol grounded in an audit of forty XAI papers. We release code, datasets, and the evaluation harness."),
       },
     ],
     references,
@@ -898,18 +945,20 @@ function buildPaper(task: string, progress: PaperProgress): Paper {
         { label: "Venue fit checked", done: progress.hasConferenceMatch },
         { label: "Submission package", done: progress.hasLaunchpad },
       ],
-      mutationFeed: buildMutationFeed(progress),
+      mutationFeed: buildMutationFeed(progress, draft),
       packageState: progress.hasLaunchpad ? "submission package live" : "draft still mutating",
     },
   };
 }
 
-function buildMutationFeed(progress: PaperProgress): MutationItem[] {
+function buildMutationFeed(progress: PaperProgress, draft?: WritingDraftOutput): MutationItem[] {
   return [
     {
       id: "m1",
       title: "Abstract rewritten",
-      note: progress.hasAbstractDraft
+      note: draft?.abstract
+        ? "Writing Studio inserted a backend-generated title and abstract into the paper preview."
+        : progress.hasAbstractDraft
         ? "The writing stage inserted a first abstract draft and marked it ready for line-level review."
         : "Waiting for the writing stage to materialize a full abstract.",
       status: progress.hasAbstractDraft ? "done" : "pending",

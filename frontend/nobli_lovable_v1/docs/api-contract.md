@@ -232,6 +232,44 @@ type IterationPayload = {
 };
 ```
 
+### ML Blueprint / Code Artifacts
+
+The backend already emits an `ml-agent` step before `judge-feedback`. It is not
+rendered as a dedicated card yet; today it is visible through `DetailPanel` as
+raw `step.tool.output` JSON. A future Code Artifacts panel should consume this
+same payload instead of inventing a new endpoint.
+
+```ts
+type MlBlueprintPayload = {
+  implementation_scope: string;
+  files: string[];
+  commands: string[];
+  artifacts: string[];
+  assumptions: string[];
+  risks: string[];
+  handoff: string;
+};
+```
+
+Current source:
+
+```ts
+const mlStep = steps.find((step) => step.id === "ml-agent");
+const blueprint = JSON.parse(mlStep?.tool?.output ?? "{}") as MlBlueprintPayload;
+```
+
+Expected future UI grouping:
+- `files`: file tree / planned source files
+- `commands`: runnable command list
+- `artifacts`: expected generated outputs such as metrics, reports, figures
+- `assumptions`: unresolved prerequisites before execution
+- `risks`: execution or reproducibility risks
+- `handoff`: concise implementation notes for a coding agent
+
+Important current limitation: the backend does not execute code, allocate GPU,
+build Docker images, or create files. This payload is a blueprint for future
+code execution and artifact download surfaces.
+
 ### Abstract
 
 ```ts
@@ -242,6 +280,23 @@ type AbstractPayload = {
   wordCount: number;
 };
 ```
+
+Current backend `writing-studio` output is richer than the early draft payload:
+
+```ts
+type WritingDraftPayload = {
+  title: string;
+  abstract: string;
+  outline: string[];
+  claims: string[];
+  limitations: string[];
+  next_writing_actions: string[];
+  rationale: string;
+};
+```
+
+`FinalPaperViewer` should prefer `writing-studio.tool.output` when available and
+fall back to browser-synthesized mock paper content otherwise.
 
 ### Publish
 
