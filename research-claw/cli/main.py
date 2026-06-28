@@ -737,6 +737,66 @@ def iterate(
 
 
 @app.command()
+def research(
+    message: str = typer.Option(..., "--message", "-m", help="Research question / prompt"),
+    project_id: str = typer.Option(None, "--project", "-p", help="Project ID (created if absent; default derived from prompt)"),
+    max_rounds: int = typer.Option(5, "--rounds", help="Iterative experiment rounds"),
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging"),
+):
+    """One prompt in, a paper PDF out.
+
+    Runs the end-to-end autonomous pipeline: survey -> design+verify experiment
+    -> metric-driven iteration -> figure -> NeurIPS paper -> compile PDF.
+    """
+    from loguru import logger
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        level="DEBUG" if verbose else "INFO",
+        format="<dim>{time:HH:mm:ss}</dim> | <level>{level: <8}</level> | {message}",
+        colorize=True,
+    )
+
+    from config.loader import load_config
+    from providers.proxy import DynamicProviderProxy
+    from core.project import Project
+    from agent.scheduler.research_pipeline import ResearchPipeline
+
+    config = load_config()
+    if not config.get_api_key():
+        console.print("[red]Error: No API key configured.[/red]")
+        raise typer.Exit(1)
+
+    # Derive a project id from the prompt if not given.
+    if not project_id:
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", message.lower()).strip("-")[:24] or "research"
+        project_id = f"research-{slug}"
+
+    proj = Project(project_id, config.workspace_path)
+    provider = DynamicProviderProxy()
+    pipeline = ResearchPipeline(
+        project=proj,
+        provider=provider,
+        model=None,
+        on_log=lambda m: console.print(m),
+        max_rounds=max_rounds,
+    )
+
+    console.print(f"[bold green]🔬 Autonomous research[/bold green] · project={project_id} · rounds={max_rounds}")
+    try:
+        result = asyncio.run(pipeline.run(message))
+        console.print(f"\n[bold green]📄 Paper:[/bold green] {result['pdf']}")
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrupted.[/yellow]")
+    except Exception as e:
+        console.print(f"\n[red]Pipeline failed: {e}[/red]")
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        raise typer.Exit(1)
+
+
+@app.command()
 def subagent(
     role: str = typer.Option(..., "--role", "-r", help="Role name of the agent"),
     profile: str = typer.Option("project_mode_subagent", "--profile", help="Agent profile"),
