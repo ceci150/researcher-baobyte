@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ArrowUp, Mic, Paperclip, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { EXAMPLE_TASKS } from "@/lib/mock-data";
@@ -111,11 +111,10 @@ const ACTION_STYLES = {
 };
 
 export function HomeScreen({ onSubmit }: { onSubmit: (task: string) => void }) {
-  const [value, setValue] = useState(
-    "I want to write a paper about explainable AI in computer vision and publish it in a strong venue.",
-  );
+  const [value, setValue] = useState("");
   const [listening, setListening] = useState(false);
   const [modal, setModal] = useState<GrowingUpdate["modal"] | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const submit = () => {
     if (!value.trim()) return;
@@ -138,13 +137,20 @@ export function HomeScreen({ onSubmit }: { onSubmit: (task: string) => void }) {
         </p>
 
         <div
+          onMouseDown={(event) => {
+            if (event.target instanceof HTMLElement && event.target.closest("button")) return;
+            if (event.target === textareaRef.current) return;
+            event.preventDefault();
+            textareaRef.current?.focus();
+          }}
           className="mt-8 rounded-[24px] border border-border bg-card"
           style={{ boxShadow: "var(--shadow-soft)", backdropFilter: "blur(10px)" }}
         >
           <textarea
+            ref={textareaRef}
             value={listening ? "Listening… faithfulness benchmarks for vision explainability…" : value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder="Ask Nobli to explore, design, write, or publish your research…"
+            placeholder="I want to write a paper about explainable AI in computer vision and publish it in a strong venue."
             className="block w-full resize-none rounded-t-[24px] bg-transparent px-5 pt-4 pb-2 text-[14px] leading-[1.7] text-foreground placeholder:text-ink-muted focus:outline-none"
             rows={4}
           />
