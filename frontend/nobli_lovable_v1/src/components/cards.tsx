@@ -943,6 +943,16 @@ export function AbstractCard({ step }: { step?: Step }) {
   const draft = parseWritingDraft(step?.tool?.output);
   const abstract = draft?.abstract ?? ABSTRACT_DRAFT;
   const wordCount = abstract.trim().split(/\s+/).filter(Boolean).length;
+  const pdfArtifact = step?.artifacts?.pdfs?.find((item) => item.path.endsWith("main.pdf")) ?? step?.artifacts?.pdfs?.[0];
+  const exportPdf = () => {
+    const href = artifactHref(pdfArtifact?.url);
+    if (href) {
+      window.open(href, "_blank", "noopener,noreferrer");
+      setExported(`Opened compiled PDF: ${pdfArtifact?.path}`);
+      return;
+    }
+    setExported("No compiled PDF artifact found yet.");
+  };
 
   return (
     <Card title="Writing studio · abstract" subtitle={draft?.title ?? "Draft from notes + experiment results"}>
@@ -1001,7 +1011,7 @@ export function AbstractCard({ step }: { step?: Step }) {
       )}
 
       <div className="mt-3 flex flex-wrap gap-1.5">
-        <Btn primary onClick={() => setExported("PDF prepared · 1 page · ready to download.")}>
+        <Btn primary onClick={exportPdf}>
           <Download className="h-3 w-3" /> Export PDF
         </Btn>
         <Btn onClick={() => setExported("Overleaf handoff prepared · open in Overleaf.")}>

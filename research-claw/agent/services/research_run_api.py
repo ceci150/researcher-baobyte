@@ -1369,12 +1369,14 @@ def format_writing_summary(draft: Dict[str, Any]) -> str:
 
 
 async def run_paper_generation_agent(run: ResearchRun, judge_step: Dict[str, Any]) -> Dict[str, Any]:
+    runtime_artifacts = judge_step.get("artifacts") or discover_experiment_artifacts(run.project_id)
     compact_steps = [
         {
             "id": step.get("id"),
             "title": step.get("title"),
             "summary": step.get("summary"),
             "tool_output": ((step.get("tool") or {}).get("output") or "")[:2200],
+            "artifacts": step.get("artifacts"),
         }
         for step in run.steps
         if step.get("id") in {"prepare-agent", "survey-agent", "experiment-plan", "ml-agent", "judge-feedback"}
@@ -1387,6 +1389,9 @@ Task:
 Research workflow state:
 {json.dumps(compact_steps, ensure_ascii=False, indent=2)[:9000]}
 
+Runtime artifacts:
+{json.dumps(runtime_artifacts, ensure_ascii=False, indent=2)[:3000]}
+
 Return ONLY compact JSON with keys:
 title: string,
 abstract: string,
@@ -1395,7 +1400,7 @@ claims: string[],
 limitations: string[],
 next_writing_actions: string[],
 rationale: string.
-Be honest that this run has generated plans/blueprints/feedback, not executed experiment results.
+Be honest about evidence: if runtime artifacts are not found, say this run has generated plans/blueprints/feedback but not executed experiment results. If runtime artifacts are found, say that executed artifacts are available, but do not invent metric values not present in results.json.
 """
     started = time.perf_counter()
     provider = DynamicProviderProxy()
@@ -1427,6 +1432,7 @@ Be honest that this run has generated plans/blueprints/feedback, not executed ex
 
 async def emit_judge_accept_steps(run: ResearchRun, approved_step_id: str) -> None:
     judge_step = find_step(run, approved_step_id)
+    runtime_artifacts = judge_step.get("artifacts") or discover_experiment_artifacts(run.project_id)
     await store.publish(
         run,
         {
@@ -1463,12 +1469,13 @@ async def emit_judge_accept_steps(run: ResearchRun, approved_step_id: str) -> No
             "summary": format_writing_summary(draft),
             "tool": {
                 "status": "done",
-                "input": {"task": run.task, "approvedStep": approved_step_id},
+                "input": {"task": run.task, "approvedStep": approved_step_id, "runtimeArtifacts": runtime_artifacts},
                 "output": draft_output,
                 "sources": judge_step.get("sources", []),
                 "citations": (judge_step.get("tool") or {}).get("citations", []),
                 "timeMs": draft["elapsedMs"],
             },
+            "artifacts": runtime_artifacts,
             "output": {"kind": "abstract"},
         },
     )

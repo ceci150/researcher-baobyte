@@ -5,7 +5,8 @@ import {
   MessageSquareQuote,
 } from "lucide-react";
 import { toast } from "sonner";
-import { ABSTRACT_DRAFT, EXPERIMENT, ITERATIONS, LITERATURE, type Step } from "@/lib/mock-data";
+import { ABSTRACT_DRAFT, EXPERIMENT, ITERATIONS, LITERATURE, type ArtifactFile, type ExperimentArtifacts, type Step } from "@/lib/mock-data";
+import { API_BASE } from "@/lib/research-run-service";
 import { cn } from "@/lib/utils";
 
 type Tab = "Paper" | "PDF Preview" | "LaTeX";
@@ -128,7 +129,11 @@ export function FinalPaperViewer({
 
   const progress = useMemo(() => derivePaperProgress(steps, currentStage), [steps, currentStage]);
   const writingDraft = useMemo(() => getWritingDraft(steps), [steps]);
-  const basePaper = useMemo(() => buildPaper(task, progress, writingDraft), [task, progress, writingDraft]);
+  const runtimeArtifacts = useMemo(() => getRuntimeArtifacts(steps), [steps]);
+  const basePaper = useMemo(
+    () => buildPaper(task, progress, writingDraft, runtimeArtifacts),
+    [task, progress, writingDraft, runtimeArtifacts],
+  );
   const paper = useMemo(() => applyAcceptedGhosts(basePaper, acceptedGhosts), [basePaper, acceptedGhosts]);
   const completeness = useMemo(() => {
     const base = Math.min(100, Math.round(((currentStage + 1) / 7) * 100));
@@ -152,6 +157,17 @@ export function FinalPaperViewer({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {}
+  };
+
+  const pdfArtifact = getPrimaryPdf(runtimeArtifacts);
+  const downloadPdf = () => {
+    const href = artifactHref(pdfArtifact?.url);
+    if (href) {
+      window.open(href, "_blank", "noopener,noreferrer");
+      toast.success("Opened compiled PDF artifact.");
+      return;
+    }
+    toast("No compiled PDF artifact found yet.");
   };
 
   const acceptGhost = (ghost: ReviewerGhost) => {
@@ -187,7 +203,7 @@ export function FinalPaperViewer({
         </div>
         <div className="flex items-center gap-1">
           <ActionBtn label="Laureate Lens" onClick={() => setLensOpen((v) => !v)} />
-          <ActionBtn label="Download PDF" onClick={() => toast.success("PDF prepared")} />
+          <ActionBtn label="Download PDF" onClick={downloadPdf} />
           <ActionBtn label="Overleaf" onClick={() => toast.success("Overleaf handoff prepared")} />
           <ActionBtn label={copied ? "Copied" : "Copy LaTeX"} onClick={copyLatex} />
         </div>
@@ -251,6 +267,18 @@ export function FinalPaperViewer({
 
           {tab === "PDF Preview" && (
             <div className="space-y-3">
+              {pdfArtifact && (
+                <div className="rounded-[18px] border border-border bg-card px-3 py-2.5 text-[11.5px] text-foreground">
+                  <div className="font-medium">Compiled PDF artifact</div>
+                  <div className="mt-1 truncate text-ink-muted">{pdfArtifact.path}</div>
+                  <button
+                    onClick={downloadPdf}
+                    className="mt-2 rounded-full border border-border bg-[var(--color-surface)] px-2.5 py-1 text-[10.5px] hover:bg-[var(--color-accent)]"
+                  >
+                    Open actual PDF
+                  </button>
+                </div>
+              )}
               <PaperPage
                 paper={paper}
                 pageNumber={1}
@@ -838,7 +866,38 @@ function getWritingDraft(steps: Step[]): WritingDraftOutput | undefined {
   }
 }
 
-function buildPaper(task: string, progress: PaperProgress, draft?: WritingDraftOutput): Paper {
+function getRuntimeArtifacts(steps: Step[]): ExperimentArtifacts | undefined {
+  return [...steps].reverse().find((item) => item.artifacts?.found)?.artifacts;
+}
+
+function getPrimaryPdf(artifacts?: ExperimentArtifacts): ArtifactFile | undefined {
+  return artifacts?.pdfs?.find((item) => item.path.endsWith("main.pdf")) ?? artifacts?.pdfs?.[0];
+}
+
+function artifactHref(url?: string) {
+  if (!url) return undefined;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `${API_BASE}${url}`;
+}
+
+function describeResultsArtifact(artifacts?: ExperimentArtifacts) {
+  if (!artifacts?.found) return "";
+  const resultKeys =
+    artifacts.results && typeof artifacts.results === "object" && !Array.isArray(artifacts.results)
+      ? Object.keys(artifacts.results as Record<string, unknown>).slice(0, 4)
+      : [];
+  const resultSummary = resultKeys.length > 0
+    ? ` The loaded results.json contains ${resultKeys.join(", ")}${resultKeys.length >= 4 ? ", ..." : ""}.`
+    : "";
+  return `The workflow has loaded executed artifacts from ${artifacts.projectId ?? "the workspace"}${artifacts.resultsPath ? ` (${artifacts.resultsPath})` : ""}.${resultSummary}`;
+}
+
+function buildPaper(
+  task: string,
+  progress: PaperProgress,
+  draft?: WritingDraftOutput,
+  artifacts?: ExperimentArtifacts,
+): Paper {
   const lower = task.toLowerCase();
   const inferred = draft?.title ?? (
     lower.includes("interpret") || lower.includes("xai") || lower.includes("explain")
@@ -915,7 +974,9 @@ function buildPaper(task: string, progress: PaperProgress, draft?: WritingDraftO
       {
         id: "experiments",
         heading: "4  Experiments",
-        body: progress.hasIterationResults
+        body: artifacts?.found
+          ? `We evaluate using the executed workspace artifacts rather than synthetic frontend metrics. ${describeResultsArtifact(artifacts)} The final metric narrative should be filled by a schema-specific mapper from results.json, so the paper avoids inventing experiment deltas.`
+          : progress.hasIterationResults
           ? `We evaluate on ${EXPERIMENT.dataset}. Baselines: ${EXPERIMENT.baseline}. Metrics: ${EXPERIMENT.metric}. Across four iteration rounds, Faithfulness@K improved from ${ITERATIONS[0].y.toFixed(2)} to ${ITERATIONS[ITERATIONS.length - 1].y.toFixed(2)} after AI feedback and human revision, yielding a 2.3x relative gain with stable accuracy under shift.`
           : `We evaluate on ${EXPERIMENT.dataset}. Baselines: ${EXPERIMENT.baseline}. Metrics: ${EXPERIMENT.metric}. The current draft reserves space for the final iteration table and ablation sweep once the writing stage consolidates the last results.`,
       },
