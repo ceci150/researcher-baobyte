@@ -40,6 +40,9 @@ class ApprovalPayload(BaseModel):
 
 class FollowUpPayload(BaseModel):
     message: str
+    active_step_id: Optional[str] = None
+    selected_tool_step_id: Optional[str] = None
+    current_stage: Optional[int] = None
 
 
 @dataclass
@@ -589,6 +592,83 @@ Make the plan concrete enough for a Machine Learning Agent to implement a first 
     return plan
 
 
+def parse_step_output(step: Dict[str, Any]) -> Dict[str, Any]:
+    output = (step.get("tool") or {}).get("output")
+    if not output:
+        return {}
+    try:
+        parsed = json.loads(str(output))
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+async def run_coding_plan_revision(
+    task: str,
+    current_plan: Dict[str, Any],
+    survey_step: Dict[str, Any],
+    user_message: str,
+) -> Dict[str, Any]:
+    survey = parse_step_output(survey_step)
+    prompt = f"""
+You are Coding Plan Agent revising an experiment plan after human follow-up.
+Task:
+{task}
+
+Current experiment plan:
+{json.dumps(current_plan, ensure_ascii=False, indent=2)[:5000]}
+
+Survey context:
+{json.dumps(survey, ensure_ascii=False, indent=2)[:3500]}
+
+Human follow-up:
+{user_message}
+
+Return ONLY compact JSON with the same keys:
+hypothesis: string,
+method: string,
+datasets: string[],
+metrics: string[],
+baselines: string[],
+resources: string,
+risks: string[],
+success_criteria: string[],
+next_actions: string[],
+rationale: string.
+Preserve useful existing details, but directly satisfy the human follow-up.
+"""
+    started = time.perf_counter()
+    provider = DynamicProviderProxy()
+    response = await provider.chat(
+        messages=[
+            {"role": "system", "content": "Return valid JSON only. Make a concrete revision, not commentary."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=1000,
+    )
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if response.finish_reason == "error" or not response.content:
+        revised = {**current_plan}
+        revised["next_actions"] = [user_message, *list(revised.get("next_actions") or [])]
+        revised["rationale"] = f"Fallback revision recorded from human follow-up: {user_message}"
+        revised["_raw"] = response.content or "No LLM response"
+        revised["_status"] = "fallback"
+    else:
+        revised = extract_json_object(response.content)
+        if not revised:
+            revised = {**current_plan}
+            revised["next_actions"] = [user_message, *list(revised.get("next_actions") or [])]
+            revised["rationale"] = f"Fallback revision recorded from human follow-up: {user_message}"
+            revised["_raw"] = response.content
+            revised["_status"] = "fallback"
+        else:
+            revised["_raw"] = response.content
+            revised["_status"] = "llm"
+    revised["elapsedMs"] = elapsed_ms
+    return revised
+
+
 async def emit_goal_accept_steps(run: ResearchRun) -> None:
     query = infer_prepare_query(run.task)
     queries = build_prepare_queries(run.task)
@@ -901,6 +981,74 @@ Be strict: this is a blueprint review, not evidence of completed experiment exec
             feedback["_status"] = "llm"
     feedback["elapsedMs"] = elapsed_ms
     return feedback
+
+
+async def run_judge_revision(
+    task: str,
+    plan_step: Dict[str, Any],
+    ml_step: Dict[str, Any],
+    current_feedback: Dict[str, Any],
+    user_message: str,
+) -> Dict[str, Any]:
+    plan = parse_step_output(plan_step)
+    ml_output = parse_step_output(ml_step)
+    prompt = f"""
+You are Judge Agent revising your implementation feedback after human follow-up.
+Task:
+{task}
+
+Approved experiment plan:
+{json.dumps(plan, ensure_ascii=False, indent=2)[:4000]}
+
+Machine Learning Agent blueprint:
+{json.dumps(ml_output, ensure_ascii=False, indent=2)[:4000]}
+
+Current judge feedback:
+{json.dumps(current_feedback, ensure_ascii=False, indent=2)[:3000]}
+
+Human follow-up:
+{user_message}
+
+Return ONLY compact JSON with keys:
+verdict: string,
+strengths: string[],
+issues: string[],
+required_fixes: string[],
+approval_recommendation: string,
+risk_level: string,
+checked_against: string[].
+Revise the feedback directly in response to the human follow-up.
+"""
+    started = time.perf_counter()
+    provider = DynamicProviderProxy()
+    response = await provider.chat(
+        messages=[
+            {"role": "system", "content": "Return valid JSON only. Be strict and actionable."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=900,
+    )
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if response.finish_reason == "error" or not response.content:
+        revised = {**current_feedback}
+        revised["required_fixes"] = [user_message, *list(revised.get("required_fixes") or [])]
+        revised["approval_recommendation"] = f"Revision requested by human: {user_message}"
+        revised["_raw"] = response.content or "No LLM response"
+        revised["_status"] = "fallback"
+    else:
+        revised = extract_json_object(response.content)
+        if not revised:
+            revised = {**current_feedback}
+            revised["required_fixes"] = [user_message, *list(revised.get("required_fixes") or [])]
+            revised["approval_recommendation"] = f"Revision requested by human: {user_message}"
+            revised["_raw"] = response.content
+            revised["_status"] = "fallback"
+        else:
+            revised["_raw"] = response.content
+            revised["_status"] = "llm"
+    revised["elapsedMs"] = elapsed_ms
+    return revised
 
 
 async def emit_experiment_accept_steps(run: ResearchRun, approved_step_id: str) -> None:
@@ -1320,17 +1468,169 @@ async def approve_research_run(run_id: str, payload: ApprovalPayload):
 @research_run_router.post("/api/research-runs/{run_id}/follow-up")
 async def send_follow_up(run_id: str, payload: FollowUpPayload):
     run = store.get(run_id)
+    target_step_id = (
+        payload.active_step_id
+        or payload.selected_tool_step_id
+        or run.paused_on_step_id
+    )
+    target_step = find_step(run, target_step_id) if target_step_id else {}
+
+    if target_step.get("id") == "experiment-plan":
+        current_plan = parse_step_output(target_step)
+        survey_step = find_step(run, "survey-agent")
+        await store.update_step(
+            run,
+            "experiment-plan",
+            {
+                "status": "running",
+                "summary": f"Revising experiment plan from follow-up: {payload.message[:120]}",
+                "tool": {
+                    "status": "running",
+                    "input": {
+                        **((target_step.get("tool") or {}).get("input") or {}),
+                        "followUp": payload.message,
+                        "activeStepId": payload.active_step_id,
+                        "selectedToolStepId": payload.selected_tool_step_id,
+                        "currentStage": payload.current_stage,
+                    },
+                    "output": "Revising structured experiment plan from user follow-up.",
+                },
+            },
+        )
+        revised = await run_coding_plan_revision(
+            run.task,
+            current_plan,
+            survey_step,
+            payload.message,
+        )
+        revised_output = json.dumps(
+            {k: v for k, v in revised.items() if k not in {"_raw", "elapsedMs"}},
+            ensure_ascii=False,
+            indent=2,
+        )
+        await store.update_step(
+            run,
+            "experiment-plan",
+            {
+                "status": "review",
+                "duration": format_duration(revised["elapsedMs"]),
+                "summary": f"Revised after follow-up: {format_plan_summary(revised)}",
+                "tool": {
+                    "status": "done",
+                    "input": {
+                        "task": run.task,
+                        "previousPlan": current_plan,
+                        "followUp": payload.message,
+                        "activeStepId": payload.active_step_id,
+                        "selectedToolStepId": payload.selected_tool_step_id,
+                        "currentStage": payload.current_stage,
+                    },
+                    "output": revised_output,
+                    "timeMs": revised["elapsedMs"],
+                },
+                "gate": True,
+                "gateLabel": "Approve experiment plan",
+                "gateHint": "Approve the revised plan before ML Agent writes and runs code.",
+                "output": {"kind": "experiment"},
+            },
+        )
+        run.status = "waiting"
+        run.paused_on_step_id = "experiment-plan"
+        await store.publish(
+            run,
+            {"type": "status", "status": "waiting", "pausedOnStepId": "experiment-plan"},
+        )
+        return {"status": "revised", "targetStepId": "experiment-plan"}
+
+    if target_step.get("id") == "judge-feedback":
+        current_feedback = parse_step_output(target_step)
+        plan_step = find_step(run, "experiment-plan")
+        ml_step = find_step(run, "ml-agent")
+        await store.update_step(
+            run,
+            "judge-feedback",
+            {
+                "status": "running",
+                "summary": f"Revising judge feedback from follow-up: {payload.message[:120]}",
+                "tool": {
+                    "status": "running",
+                    "input": {
+                        **((target_step.get("tool") or {}).get("input") or {}),
+                        "followUp": payload.message,
+                        "activeStepId": payload.active_step_id,
+                        "selectedToolStepId": payload.selected_tool_step_id,
+                        "currentStage": payload.current_stage,
+                    },
+                    "output": "Revising judge feedback from user follow-up.",
+                },
+            },
+        )
+        revised = await run_judge_revision(
+            run.task,
+            plan_step,
+            ml_step,
+            current_feedback,
+            payload.message,
+        )
+        revised_output = json.dumps(
+            {k: v for k, v in revised.items() if k not in {"_raw", "elapsedMs"}},
+            ensure_ascii=False,
+            indent=2,
+        )
+        await store.update_step(
+            run,
+            "judge-feedback",
+            {
+                "status": "review",
+                "duration": format_duration(revised["elapsedMs"]),
+                "summary": f"Revised after follow-up: {format_judge_summary(revised)}",
+                "tool": {
+                    "status": "done",
+                    "input": {
+                        "task": run.task,
+                        "previousFeedback": current_feedback,
+                        "followUp": payload.message,
+                        "activeStepId": payload.active_step_id,
+                        "selectedToolStepId": payload.selected_tool_step_id,
+                        "currentStage": payload.current_stage,
+                    },
+                    "output": revised_output,
+                    "timeMs": revised["elapsedMs"],
+                },
+                "gate": True,
+                "gateLabel": "Approve iteration feedback",
+                "gateHint": "Approve the revised feedback before continuing to writing.",
+                "output": {"kind": "iteration"},
+            },
+        )
+        run.status = "waiting"
+        run.paused_on_step_id = "judge-feedback"
+        await store.publish(
+            run,
+            {"type": "status", "status": "waiting", "pausedOnStepId": "judge-feedback"},
+        )
+        return {"status": "revised", "targetStepId": "judge-feedback"}
+
     step = {
         "id": f"followup-{uuid.uuid4().hex[:6]}",
-        "stageIndex": max((s.get("stageIndex", 0) for s in run.steps), default=0),
+        "stageIndex": payload.current_stage if payload.current_stage is not None else max((s.get("stageIndex", 0) for s in run.steps), default=0),
         "title": "Follow-up sent to agent",
         "summary": payload.message,
         "duration": "0s",
         "status": "review",
-        "tool": tool("User Follow-up", {"message": payload.message}, "Follow-up recorded for the next agent turn."),
+        "tool": tool(
+            "User Follow-up",
+            {
+                "message": payload.message,
+                "activeStepId": payload.active_step_id,
+                "selectedToolStepId": payload.selected_tool_step_id,
+                "currentStage": payload.current_stage,
+            },
+            "Follow-up recorded for the next agent turn.",
+        ),
     }
     await store.publish(run, {"type": "step", "step": step})
-    return {"status": "ok"}
+    return {"status": "recorded", "targetStepId": target_step_id}
 
 
 @research_run_router.websocket("/ws/research-runs/{run_id}")

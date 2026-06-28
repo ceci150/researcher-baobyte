@@ -47,6 +47,7 @@ function Index() {
   const [stageJump, setStageJump] = useState<number | undefined>();
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
   const [selectedToolStepId, setSelectedToolStepId] = useState<string | undefined>();
+  const [pausedStepId, setPausedStepId] = useState<string | undefined>();
 
   const startRun = useCallback(async (t: string) => {
     setTask(t);
@@ -107,6 +108,7 @@ function Index() {
     if (event.type === "status") {
       setRunStatus(event.status);
       setPaused(event.status === "waiting");
+      setPausedStepId(event.pausedOnStepId ?? undefined);
       setPending(event.status === "running");
       return;
     }
@@ -167,7 +169,13 @@ function Index() {
 
   const handleFollowUp = async (message: string) => {
     if (!runId) return;
-    await sendResearchFollowUp({ runId, message });
+    await sendResearchFollowUp({
+      runId,
+      message,
+      activeStepId: pausedStepId ?? selectedToolStepId ?? steps[steps.length - 1]?.id,
+      selectedToolStepId,
+      currentStage,
+    });
   };
 
   const maxStage = steps.reduce((m, s) => Math.max(m, s.stageIndex + 1), 0);

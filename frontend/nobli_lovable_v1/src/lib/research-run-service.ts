@@ -98,11 +98,22 @@ export async function submitResearchApproval(input: {
   return response.json();
 }
 
-export async function sendResearchFollowUp(input: { runId: string; message: string }) {
+export async function sendResearchFollowUp(input: {
+  runId: string;
+  message: string;
+  activeStepId?: string;
+  selectedToolStepId?: string;
+  currentStage?: number;
+}) {
   const response = await fetch(`${API_BASE}/api/research-runs/${input.runId}/follow-up`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message: input.message }),
+    body: JSON.stringify({
+      message: input.message,
+      active_step_id: input.activeStepId,
+      selected_tool_step_id: input.selectedToolStepId,
+      current_stage: input.currentStage,
+    }),
   });
 
   if (!response.ok) {
