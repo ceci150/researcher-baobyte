@@ -10,6 +10,7 @@ import {
   OPPORTUNITIES,
   PLATFORMS,
 } from "@/lib/mock-data";
+import type { Step } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
 import {
   Bell,
@@ -340,14 +341,65 @@ const sevColor = (s: string) =>
       ? "var(--stage-0-ring)"
       : "var(--stage-3-ring)";
 
-export function ExperimentCard() {
+type ExperimentPlanOutput = {
+  hypothesis?: string;
+  method?: string;
+  datasets?: string[];
+  metrics?: string[];
+  baselines?: string[];
+  resources?: string;
+  risks?: string[];
+  success_criteria?: string[];
+  next_actions?: string[];
+  rationale?: string;
+};
+
+function stringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return items.length > 0 ? items : undefined;
+}
+
+function parseExperimentPlan(output?: string): ExperimentPlanOutput | undefined {
+  if (!output) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const raw = parsed as Record<string, unknown>;
+    return {
+      hypothesis: typeof raw.hypothesis === "string" ? raw.hypothesis : undefined,
+      method: typeof raw.method === "string" ? raw.method : undefined,
+      datasets: stringArray(raw.datasets),
+      metrics: stringArray(raw.metrics),
+      baselines: stringArray(raw.baselines),
+      resources: typeof raw.resources === "string" ? raw.resources : undefined,
+      risks: stringArray(raw.risks),
+      success_criteria: stringArray(raw.success_criteria),
+      next_actions: stringArray(raw.next_actions),
+      rationale: typeof raw.rationale === "string" ? raw.rationale : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function ExperimentCard({ step }: { step?: Step }) {
   const [pick, setPick] = useState("B");
   const [open, setOpen] = useState(false);
+  const realPlan = parseExperimentPlan(step?.tool?.output);
+  const subtitle = realPlan
+    ? [realPlan.datasets?.[0], realPlan.metrics?.[0]].filter(Boolean).join(" · ") || "Structured plan from Coding Plan Agent"
+    : "Faithful-CBM under distribution shift";
+  const risks = realPlan?.risks?.map((risk, index) => ({
+    label: risk,
+    severity: index === 0 ? "med" : "low",
+    mitigation: realPlan.next_actions?.[index] ?? "Track during iteration and request revision if it blocks execution.",
+  })) ?? RISKS;
 
   return (
     <Card
       title="Experiment plan"
-      subtitle="Faithful-CBM under distribution shift"
+      subtitle={subtitle}
       headerRight={
         <button
           onClick={() => setOpen(true)}
@@ -358,15 +410,24 @@ export function ExperimentCard() {
       }
     >
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <Field label="Hypothesis" value={EXPERIMENT.hypothesis} />
-        <Field label="Method" value={EXPERIMENT.method} />
+        <Field label="Hypothesis" value={realPlan?.hypothesis ?? EXPERIMENT.hypothesis} />
+        <Field label="Method" value={realPlan?.method ?? EXPERIMENT.method} />
         <Field label="Variables" value={EXPERIMENT.variables.join(" · ")} />
-        <Field label="Dataset" value={EXPERIMENT.dataset} />
-        <Field label="Baseline" value={EXPERIMENT.baseline} />
-        <Field label="Metric" value={EXPERIMENT.metric} />
-        <Field label="Contribution" value={EXPERIMENT.contribution} />
-        <Field label="Resources" value={EXPERIMENT.resources} />
+        <Field label="Dataset" value={realPlan?.datasets?.join(", ") ?? EXPERIMENT.dataset} />
+        <Field label="Baseline" value={realPlan?.baselines?.join(", ") ?? EXPERIMENT.baseline} />
+        <Field label="Metric" value={realPlan?.metrics?.join(", ") ?? EXPERIMENT.metric} />
+        <Field label={realPlan ? "Success criteria" : "Contribution"} value={realPlan?.success_criteria?.join(" · ") ?? EXPERIMENT.contribution} />
+        <Field label="Resources" value={realPlan?.resources ?? EXPERIMENT.resources} />
       </div>
+
+      {realPlan?.rationale && (
+        <div className="mt-3 rounded-lg border border-border bg-[var(--color-surface)] p-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
+            Agent rationale
+          </div>
+          <div className="mt-1 text-[11.5px] leading-snug text-foreground">{realPlan.rationale}</div>
+        </div>
+      )}
 
       {/* Design variants — comparison */}
       <div className="mt-4">
@@ -430,7 +491,7 @@ export function ExperimentCard() {
           Risk analysis
         </div>
         <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
-          {RISKS.map((r) => (
+          {risks.map((r) => (
             <div
               key={r.label}
               className="rounded-lg border p-2.5"
@@ -491,6 +552,36 @@ export function ExperimentCard() {
       <ResearchTimelineDialog open={open} onClose={() => setOpen(false)} />
     </Card>
   );
+}
+
+type WritingDraftOutput = {
+  title?: string;
+  abstract?: string;
+  outline?: string[];
+  claims?: string[];
+  limitations?: string[];
+  next_writing_actions?: string[];
+  rationale?: string;
+};
+
+function parseWritingDraft(output?: string): WritingDraftOutput | undefined {
+  if (!output) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const raw = parsed as Record<string, unknown>;
+    return {
+      title: typeof raw.title === "string" ? raw.title : undefined,
+      abstract: typeof raw.abstract === "string" ? raw.abstract : undefined,
+      outline: stringArray(raw.outline),
+      claims: stringArray(raw.claims),
+      limitations: stringArray(raw.limitations),
+      next_writing_actions: stringArray(raw.next_writing_actions),
+      rationale: typeof raw.rationale === "string" ? raw.rationale : undefined,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function MiniBar({ label, v, color }: { label: string; v: number; color: string }) {
@@ -603,7 +694,37 @@ function ResearchTimelineDialog({ open, onClose }: { open: boolean; onClose: () 
 }
 
 
-export function IterationCard() {
+type JudgeFeedbackOutput = {
+  verdict?: string;
+  strengths?: string[];
+  issues?: string[];
+  required_fixes?: string[];
+  approval_recommendation?: string;
+  risk_level?: string;
+  checked_against?: string[];
+};
+
+function parseJudgeFeedback(output?: string): JudgeFeedbackOutput | undefined {
+  if (!output) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const raw = parsed as Record<string, unknown>;
+    return {
+      verdict: typeof raw.verdict === "string" ? raw.verdict : undefined,
+      strengths: stringArray(raw.strengths),
+      issues: stringArray(raw.issues),
+      required_fixes: stringArray(raw.required_fixes),
+      approval_recommendation: typeof raw.approval_recommendation === "string" ? raw.approval_recommendation : undefined,
+      risk_level: typeof raw.risk_level === "string" ? raw.risk_level : undefined,
+      checked_against: stringArray(raw.checked_against),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function IterationCard({ step }: { step?: Step }) {
   const w = 460;
   const h = 160;
   const padL = 32;
@@ -619,11 +740,12 @@ export function IterationCard() {
   const sy = (y: number) => padT + (1 - (y - yMin) / (yMax - yMin)) * (h - padT - padB);
   const path = ITERATIONS.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.x)},${sy(p.y)}`).join(" ");
   const targetY = sy(0.7);
+  const feedback = parseJudgeFeedback(step?.tool?.output);
 
   return (
     <Card
-      title="AutoResearch progress"
-      subtitle="Iterations toward research objective"
+      title={feedback ? "Judge feedback" : "AutoResearch progress"}
+      subtitle={feedback?.approval_recommendation ?? "Iterations toward research objective"}
       headerRight={
         <span
           className="rounded-full px-2.5 py-0.5 text-[10.5px] font-medium text-foreground"
@@ -632,7 +754,7 @@ export function IterationCard() {
             fontFamily: "var(--font-ui)",
           }}
         >
-          objective progress +34%
+          {feedback ? `${feedback.verdict ?? "needs_review"} · ${feedback.risk_level ?? "risk unknown"}` : "objective progress +34%"}
         </span>
       }
     >
@@ -693,15 +815,26 @@ export function IterationCard() {
 
       <div className="mt-3 space-y-1.5">
         <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
-          AI feedback on Version 1
+          {feedback ? "Judge review of ML blueprint" : "AI feedback on Version 1"}
         </div>
         <div className="rounded-xl border border-border bg-[var(--color-surface)] p-3 text-[12px]">
-          <div className="text-foreground">
-            Faithfulness loss weight is too low; perturbation schedule clips at shift severity 0.4.
-          </div>
-          <div className="mt-1 text-[11px] text-ink-muted">
-            Suggested change: raise λ to 0.6 and extend schedule to 0.7 · expected Faithfulness@K +0.12 · confidence 0.78
-          </div>
+          {feedback ? (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <ListPanel title="Strengths" items={feedback.strengths} fallback="No strengths returned." />
+              <ListPanel title="Issues" items={feedback.issues} fallback="No issues returned." />
+              <ListPanel title="Required fixes" items={feedback.required_fixes} fallback="No required fixes returned." />
+              <ListPanel title="Checked against" items={feedback.checked_against} fallback="No check scope returned." />
+            </div>
+          ) : (
+            <>
+              <div className="text-foreground">
+                Faithfulness loss weight is too low; perturbation schedule clips at shift severity 0.4.
+              </div>
+              <div className="mt-1 text-[11px] text-ink-muted">
+                Suggested change: raise λ to 0.6 and extend schedule to 0.7 · expected Faithfulness@K +0.12 · confidence 0.78
+              </div>
+            </>
+          )}
           <div className="mt-2 flex gap-1.5">
             <Btn primary onClick={() => toast.success("Applied: λ=0.6, schedule→0.7")}>Accept</Btn>
             <Btn onClick={() => toast("Rejected AI suggestion.")}>Reject</Btn>
@@ -716,12 +849,15 @@ export function IterationCard() {
   );
 }
 
-export function AbstractCard() {
+export function AbstractCard({ step }: { step?: Step }) {
   const [style, setStyle] = useState("Concise conference");
   const [exported, setExported] = useState<string | null>(null);
+  const draft = parseWritingDraft(step?.tool?.output);
+  const abstract = draft?.abstract ?? ABSTRACT_DRAFT;
+  const wordCount = abstract.trim().split(/\s+/).filter(Boolean).length;
 
   return (
-    <Card title="Writing studio · abstract" subtitle="Draft from notes + experiment results">
+    <Card title="Writing studio · abstract" subtitle={draft?.title ?? "Draft from notes + experiment results"}>
       <div className="mb-2 flex flex-wrap gap-1">
         {ABSTRACT_STYLES.map((s) => (
           <button
@@ -742,11 +878,11 @@ export function AbstractCard() {
       <div className="rounded-lg border border-border bg-[var(--color-surface)]">
         <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] text-ink-muted">
           <span>Abstract · v1 · {style}</span>
-          <span>178 words</span>
+          <span>{wordCount} words</span>
         </div>
         <div className="space-y-2 p-3 text-[12.5px] leading-relaxed text-foreground">
           <p className="rounded border border-transparent p-1.5 hover:border-border">
-            {ABSTRACT_DRAFT}
+            {abstract}
           </p>
           <div className="flex flex-wrap gap-1">
             {["Approve paragraph", "Rewrite more academic", "Make clearer", "Add stronger hook", "Shorten"].map(
@@ -757,6 +893,24 @@ export function AbstractCard() {
           </div>
         </div>
       </div>
+
+      {draft && (
+        <div className="mt-3 grid grid-cols-1 gap-1.5 md:grid-cols-2">
+          <ListPanel title="Claims" items={draft.claims} fallback="No claims returned yet." />
+          <ListPanel title="Limitations" items={draft.limitations} fallback="No limitations returned yet." />
+          <ListPanel title="Outline" items={draft.outline} fallback="No outline returned yet." />
+          <ListPanel title="Next actions" items={draft.next_writing_actions} fallback="No writing actions returned yet." />
+        </div>
+      )}
+
+      {draft?.rationale && (
+        <div className="mt-3 rounded-lg border border-border bg-[var(--color-surface)] p-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
+            Agent rationale
+          </div>
+          <div className="mt-1 text-[11.5px] leading-snug text-foreground">{draft.rationale}</div>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         <Btn primary onClick={() => setExported("PDF prepared · 1 page · ready to download.")}>
@@ -776,6 +930,22 @@ export function AbstractCard() {
         </div>
       )}
     </Card>
+  );
+}
+
+function ListPanel({ title, items, fallback }: { title: string; items?: string[]; fallback: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-2.5">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">{title}</div>
+      <ul className="mt-1.5 space-y-1 text-[11.5px] leading-snug text-foreground">
+        {(items && items.length > 0 ? items : [fallback]).map((item) => (
+          <li key={item} className="flex gap-1.5">
+            <span className="mt-[0.45em] h-1 w-1 shrink-0 rounded-full bg-ink-muted" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -850,13 +1020,56 @@ export function ConferencesCard() {
   );
 }
 
-export function MemoryCard() {
+type MemorySummaryOutput = {
+  run_id?: string;
+  task?: string;
+  completed_steps?: string[];
+  draft_title?: string;
+  remaining_work?: string[];
+};
+
+function parseMemorySummary(output?: string): MemorySummaryOutput | undefined {
+  if (!output) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const raw = parsed as Record<string, unknown>;
+    return {
+      run_id: typeof raw.run_id === "string" ? raw.run_id : undefined,
+      task: typeof raw.task === "string" ? raw.task : undefined,
+      completed_steps: stringArray(raw.completed_steps),
+      draft_title: typeof raw.draft_title === "string" ? raw.draft_title : undefined,
+      remaining_work: stringArray(raw.remaining_work),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export function MemoryCard({ step }: { step?: Step }) {
   const [sent, setSent] = useState(false);
+  const memory = parseMemorySummary(step?.tool?.output);
+  const notifications = memory
+    ? [
+        {
+          id: "draft",
+          text: `Draft tracked: ${memory.draft_title ?? "untitled research narrative"}.`,
+        },
+        {
+          id: "steps",
+          text: `Completed steps recorded: ${memory.completed_steps?.join(", ") ?? "none"}.`,
+        },
+        ...(memory.remaining_work ?? []).map((item, index) => ({
+          id: `remaining-${index}`,
+          text: `Remaining work: ${item}`,
+        })),
+      ]
+    : MEMORY_NOTIFICATIONS;
   return (
-    <Card title="Memory & Growing" subtitle="Researcher signals queued for you">
+    <Card title="Memory & Growing" subtitle={memory?.task ?? "Researcher signals queued for you"}>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_240px]">
         <div className="space-y-1.5">
-          {MEMORY_NOTIFICATIONS.map((n) => (
+          {notifications.map((n) => (
             <div
               key={n.id}
               className="flex items-start gap-2 rounded-lg border border-border bg-[var(--color-surface)] px-3 py-2"
@@ -869,11 +1082,15 @@ export function MemoryCard() {
         <div className="rounded-xl border border-border bg-[var(--color-surface)] p-3">
             <div className="mx-auto max-w-[180px] rounded-2xl border border-border bg-card p-3 shadow-[var(--shadow-quiet)]">
               <div className="flex items-center gap-1.5 text-[10px] text-ink-muted">
-              <FileText className="h-3 w-3" /> Nobli
+                <FileText className="h-3 w-3" /> Nobli
               </div>
-            <div className="mt-1 text-[11px] font-medium">Weekly research digest</div>
+              <div className="mt-1 text-[11px] font-medium">
+                {memory ? "Run memory snapshot" : "Weekly research digest"}
+              </div>
             <div className="mt-0.5 text-[10.5px] leading-snug text-ink-muted">
-              5 signals waiting. Tap to review.
+              {memory
+                ? `${memory.completed_steps?.length ?? 0} steps · ${memory.remaining_work?.length ?? 0} actions left.`
+                : "5 signals waiting. Tap to review."}
             </div>
           </div>
           <button

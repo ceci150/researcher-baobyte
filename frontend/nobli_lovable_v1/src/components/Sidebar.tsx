@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
 export function Sidebar({
   active,
   currentTaskTitle,
+  currentTaskStatus = "idle",
   onHome,
   variant = "expanded",
   onMouseEnter,
@@ -37,6 +38,7 @@ export function Sidebar({
 }: {
   active: string;
   currentTaskTitle?: string;
+  currentTaskStatus?: "idle" | "running" | "waiting" | "complete" | "failed";
   onHome: () => void;
   variant?: SidebarVariant;
   onMouseEnter?: () => void;
@@ -44,6 +46,20 @@ export function Sidebar({
 }) {
   const isCollapsed = variant === "collapsed";
   const showExpandedContent = !isCollapsed;
+  const currentTaskLabel = {
+    idle: "Idle",
+    running: "Agent running",
+    waiting: "Awaiting approval",
+    complete: "Run complete",
+    failed: "Connection failed",
+  }[currentTaskStatus];
+  const currentTaskDot = currentTaskStatus === "running"
+    ? "bg-[var(--color-running)]"
+    : currentTaskStatus === "waiting"
+      ? "bg-foreground"
+      : currentTaskStatus === "failed"
+        ? "bg-destructive"
+        : "bg-ink-muted";
 
   return (
     <aside
@@ -122,10 +138,12 @@ export function Sidebar({
               <div className="line-clamp-3 text-foreground">{currentTaskTitle}</div>
               <div className="mt-1.5 flex items-center gap-1.5 text-[10.5px] text-ink-muted">
                 <span className="relative inline-flex h-1.5 w-1.5 items-center justify-center">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-running)] opacity-60" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-running)]" />
+                  {currentTaskStatus === "running" && (
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-running)] opacity-60" />
+                  )}
+                  <span className={cn("relative inline-flex h-1.5 w-1.5 rounded-full", currentTaskDot)} />
                 </span>
-                Agent running
+                {currentTaskLabel}
               </div>
             </div>
           </div>

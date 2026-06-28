@@ -22,6 +22,9 @@ export function AgentStream({
   task,
   approvedOpportunity,
   onApprove,
+  onApprovalAction,
+  onSelectTool,
+  selectedToolStepId,
   onSelectOpportunity,
   selectedOpportunity,
   stageJump,
@@ -32,6 +35,9 @@ export function AgentStream({
   task: string;
   approvedOpportunity?: string;
   onApprove: (id: string) => void;
+  onApprovalAction: (stepId: string, action: "accept" | "reject" | "ask-revision") => void;
+  onSelectTool: (stepId: string) => void;
+  selectedToolStepId?: string;
   onSelectOpportunity: (id: string) => void;
   selectedOpportunity?: string;
   stageJump?: number;
@@ -111,7 +117,7 @@ export function AgentStream({
                 >
                   Stage {s.stageIndex + 1}
                 </span>
-                <span className="text-ink-muted">Worked for {s.duration}</span>
+                <span className="text-ink-muted">{formatDurationLabel(s.duration)}</span>
                 <StatusPill status={s.status} />
               </div>
               <div
@@ -150,12 +156,12 @@ export function AgentStream({
                       onApprove={onApprove}
                     />
                   )}
-                  {s.output.kind === "experiment" && <ExperimentCard />}
-                  {s.output.kind === "iteration" && <IterationCard />}
-                  {s.output.kind === "abstract" && <AbstractCard />}
+                  {s.output.kind === "experiment" && <ExperimentCard step={s} />}
+                  {s.output.kind === "iteration" && <IterationCard step={s} />}
+                  {s.output.kind === "abstract" && <AbstractCard step={s} />}
                   {s.output.kind === "publish" && <PublishCard />}
                   {s.output.kind === "conferences" && <ConferencesCard />}
-                  {s.output.kind === "memory" && <MemoryCard />}
+                  {s.output.kind === "memory" && <MemoryCard step={s} />}
                 </div>
               )}
 
@@ -166,10 +172,7 @@ export function AgentStream({
                   <GateBar
                     label={s.gateLabel ?? "Human approval"}
                     hint={s.gateHint ?? "Approve to let the agent continue."}
-                    onApprove={() => {
-                      toast.success("Approved — agent continuing.");
-                      onApprove(s.id);
-                    }}
+                    onAction={(action) => onApprovalAction(s.id, action)}
                   />
                 )}
             </div>
@@ -190,6 +193,12 @@ export function AgentStream({
       </div>
     </div>
   );
+}
+
+function formatDurationLabel(duration: string) {
+  if (duration === "pending" || duration === "queued") return "Queued";
+  if (!duration) return "Queued";
+  return `Worked for ${duration}`;
 }
 
 function StatusPill({ status }: { status: Step["status"] }) {
@@ -236,11 +245,11 @@ function StatusPill({ status }: { status: Step["status"] }) {
 function GateBar({
   label,
   hint,
-  onApprove,
+  onAction,
 }: {
   label: string;
   hint: string;
-  onApprove: () => void;
+  onAction: (action: "accept" | "reject" | "ask-revision") => void;
 }) {
   return (
     <div
@@ -263,14 +272,20 @@ function GateBar({
       <div className="mt-1.5 text-[12px] leading-[1.65] text-ink-muted">{hint}</div>
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         <button
-          onClick={onApprove}
+          onClick={() => {
+            toast.success("Approved — agent continuing.");
+            onAction("accept");
+          }}
           className="inline-flex items-center gap-1 rounded-full bg-foreground px-3 py-1.5 text-[11.5px] font-medium text-background hover:opacity-90"
           style={{ fontFamily: "var(--font-ui)" }}
         >
           <Check className="h-3 w-3" /> Accept &amp; continue
         </button>
         <button
-          onClick={() => toast("Revision requested — agent will adjust before continuing.")}
+          onClick={() => {
+            toast("Revision requested — agent will adjust before continuing.");
+            onAction("ask-revision");
+          }}
           className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-3 py-1.5 text-[11.5px] hover:bg-[var(--color-surface-2)]"
         >
           <Pencil className="h-3 w-3" /> Ask for revision
@@ -282,7 +297,10 @@ function GateBar({
           <MessageSquare className="h-3 w-3" /> Discuss
         </button>
         <button
-          onClick={() => toast("Skipped — moving on without approval.")}
+          onClick={() => {
+            toast("Skipped — run paused without approval.");
+            onAction("reject");
+          }}
           className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] text-ink-muted hover:text-foreground"
           title="Skip"
         >

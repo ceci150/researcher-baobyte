@@ -8,9 +8,11 @@ export type AgentMode = "Full Automation" | "Discuss";
 export function AgentControl({
   mode,
   setMode,
+  onSendFollowUp,
 }: {
   mode: AgentMode;
   setMode: (m: AgentMode) => void;
+  onSendFollowUp?: (message: string) => Promise<void> | void;
 }) {
   const [text, setText] = useState("");
   const [listening, setListening] = useState(false);
@@ -130,9 +132,15 @@ export function AgentControl({
                 toast("Type a follow-up first.");
                 return;
               }
-              toast.success("Sent to agent: " + (msg.length > 50 ? msg.slice(0, 50) + "…" : msg));
-              setText("");
-              setListening(false);
+              Promise.resolve(onSendFollowUp?.(msg))
+                .then(() => {
+                  toast.success("Sent to agent: " + (msg.length > 50 ? msg.slice(0, 50) + "…" : msg));
+                  setText("");
+                  setListening(false);
+                })
+                .catch((error) => {
+                  toast.error(error instanceof Error ? error.message : "Failed to send follow-up.");
+                });
             }}
             className="grid h-8 w-8 place-items-center rounded-full bg-foreground text-background transition-all hover:-translate-y-px hover:opacity-92"
             style={{ boxShadow: "var(--shadow-quiet)" }}

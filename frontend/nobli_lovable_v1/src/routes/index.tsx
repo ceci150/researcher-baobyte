@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { HomeScreen } from "@/components/HomeScreen";
 import { ProcessBar } from "@/components/ProcessBar";
@@ -7,8 +7,15 @@ import { AgentStream } from "@/components/AgentStream";
 import { DetailPanel } from "@/components/DetailPanel";
 import { FinalPaperViewer } from "@/components/FinalPaperViewer";
 import { AgentControl, type AgentMode } from "@/components/AgentControl";
-import { SCRIPT } from "@/lib/script";
 import type { Step } from "@/lib/mock-data";
+import {
+  createResearchRun,
+  sendResearchFollowUp,
+  submitResearchApproval,
+  subscribeToResearchRun,
+  type ResearchRunEvent,
+  type RunStatus,
+} from "@/lib/research-run-service";
 
 type WorkflowStage = "home" | "explore" | "survey" | "experiment" | "write" | "publish";
 
@@ -31,24 +38,94 @@ function Index() {
   const [steps, setSteps] = useState<Step[]>([]);
   const [pending, setPending] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [cursor, setCursor] = useState(0);
+  const [runId, setRunId] = useState<string | undefined>();
+  const [runStatus, setRunStatus] = useState<RunStatus>("idle");
   const [approvedOpportunity, setApprovedOpportunity] = useState<string | undefined>();
   const [selectedOpportunity, setSelectedOpportunity] = useState<string | undefined>();
   const [mode, setMode] = useState<AgentMode>("Full Automation");
   const [elapsed, setElapsed] = useState(0);
   const [stageJump, setStageJump] = useState<number | undefined>();
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [selectedToolStepId, setSelectedToolStepId] = useState<string | undefined>();
 
-  const startRun = useCallback((t: string) => {
+  const startRun = useCallback(async (t: string) => {
     setTask(t);
     setSteps([]);
-    setCursor(0);
     setPaused(false);
+    setPending(true);
+    setRunStatus("running");
     setApprovedOpportunity(undefined);
     setSelectedOpportunity(undefined);
     setElapsed(0);
+    try {
+      const run = await createResearchRun({
+        task: t,
+        mode,
+        controlMode: mode === "Discuss" ? "Discuss" : "Full Automation",
+      });
+      setRunId(run.id);
+      setRunStatus(run.status);
+    } catch (error) {
+      setPending(false);
+      setRunStatus("failed");
+      setSteps([
+        {
+          id: "connection-error",
+          stageIndex: 0,
+          title: "Could not connect to research backend",
+          summary:
+            error instanceof Error
+              ? error.message
+              : "Start the Research Claw gateway and try again.",
+          duration: "0s",
+          status: "waiting",
+        },
+      ]);
+    }
+  }, [mode]);
+
+  const applyRunEvent = useCallback((event: ResearchRunEvent) => {
+    if (event.type === "step") {
+      setSteps((prev) => {
+        const existingIndex = prev.findIndex((step) => step.id === event.step.id);
+        if (existingIndex >= 0) {
+          return prev.map((step, index) =>
+            index === existingIndex
+              ? { ...step, ...event.step, tool: { ...step.tool, ...event.step.tool } }
+              : step,
+          );
+        }
+        return [...prev, event.step];
+      });
+      setPending(false);
+      if (event.step.gate) {
+        setPaused(true);
+      }
+      return;
+    }
+
+    if (event.type === "status") {
+      setRunStatus(event.status);
+      setPaused(event.status === "waiting");
+      setPending(event.status === "running");
+      return;
+    }
+
+    setPending(false);
+    setRunStatus("failed");
   }, []);
+
+  useEffect(() => {
+    if (!runId) return;
+    return subscribeToResearchRun(
+      runId,
+      applyRunEvent,
+      () => {
+        setPending(false);
+        setRunStatus("failed");
+      },
+    );
+  }, [runId, applyRunEvent]);
 
   // Elapsed timer
   useEffect(() => {
@@ -57,44 +134,40 @@ function Index() {
     return () => clearInterval(id);
   }, [task]);
 
-  // Streaming scheduler
-  useEffect(() => {
-    if (!task) return;
-    if (paused) return;
-    if (cursor >= SCRIPT.length) {
-      setPending(false);
-      return;
-    }
-    const next = SCRIPT[cursor];
-    const stepToAdd =
-      mode === "Discuss" && !next.gate
-        ? {
-            ...next,
-            gate: true,
-            gateLabel: "Discuss before continuing",
-            gateHint:
-              "Discuss mode is on — confirm or comment on this step before the agent proceeds.",
-          }
-        : next;
-    setPending(true);
-    timerRef.current = setTimeout(() => {
-      setSteps((prev) => [...prev, stepToAdd]);
-      setPending(false);
-      if (stepToAdd.gate) {
-        setPaused(true);
-      } else {
-        setCursor((c) => c + 1);
-      }
-    }, next.delayMs ?? 1200);
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, [task, cursor, paused, mode]);
-
-  const handleApprove = (id: string) => {
+  const handleApprove = async (id: string) => {
     if (id.startsWith("o")) setApprovedOpportunity(id);
+    if (!runId) return;
+    const stepId = id.startsWith("o") ? steps[steps.length - 1]?.id : id;
+    if (!stepId) return;
     setPaused(false);
-    setCursor((c) => c + 1);
+    setPending(true);
+    await submitResearchApproval({
+      runId,
+      stepId,
+      action: "accept",
+      selectedOpportunityId: id.startsWith("o") ? id : selectedOpportunity,
+    });
+  };
+
+  const handleApprovalAction = async (
+    stepId: string,
+    action: "accept" | "reject" | "ask-revision",
+  ) => {
+    if (!runId) return;
+    setPaused(false);
+    setPending(true);
+    await submitResearchApproval({
+      runId,
+      stepId,
+      action,
+      selectedOpportunityId: selectedOpportunity,
+      comment: action === "ask-revision" ? "User requested a revision before continuing." : "",
+    });
+  };
+
+  const handleFollowUp = async (message: string) => {
+    if (!runId) return;
+    await sendResearchFollowUp({ runId, message });
   };
 
   const maxStage = steps.reduce((m, s) => Math.max(m, s.stageIndex + 1), 0);
@@ -123,7 +196,9 @@ function Index() {
     return m > 0 ? `${m}m ${s.toString().padStart(2, "0")}s` : `${s}s`;
   }, [elapsed]);
 
-  const status = paused
+  const status = runStatus === "failed"
+    ? "Connection failed"
+    : paused
     ? "Awaiting human approval"
     : pending
       ? mode === "Discuss"
@@ -155,6 +230,7 @@ function Index() {
       <Sidebar
         active="new"
         currentTaskTitle={task}
+        currentTaskStatus={runStatus}
         onHome={() => setTask(null)}
         variant={sidebarVariant}
         onMouseEnter={() => setIsSidebarHovered(true)}
@@ -175,12 +251,17 @@ function Index() {
           task={task}
           approvedOpportunity={approvedOpportunity}
           onApprove={handleApprove}
+          onApprovalAction={handleApprovalAction}
+          onSelectTool={(id) =>
+            setSelectedToolStepId((cur) => (cur === id ? undefined : id))
+          }
+          selectedToolStepId={selectedToolStepId}
           onSelectOpportunity={setSelectedOpportunity}
           selectedOpportunity={selectedOpportunity}
           stageJump={stageJump}
           mode={mode}
         />
-        <AgentControl mode={mode} setMode={setMode} />
+        <AgentControl mode={mode} setMode={setMode} onSendFollowUp={handleFollowUp} />
       </main>
       {showPaperPanel ? (
         <FinalPaperViewer task={task} currentStage={currentStage} steps={steps} />

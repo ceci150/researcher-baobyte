@@ -7,6 +7,7 @@ from typing import Optional, List, Any, Dict
 import re
 from datetime import datetime
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -26,6 +27,16 @@ from core.automation.push_targets import build_apprise_url, send_apprise_notific
 from core.memory import ProjectMemoryStore
 
 app = FastAPI(title="Research Claw Gateway")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -60,7 +71,9 @@ automation_runtime: Optional[AutomationRuntime] = None
 
 # WebUI Chat (router registered here, init deferred until after agent_loop is created)
 from agent.services.chat_api import chat_router, init_chat_api
+from agent.services.research_run_api import research_run_router
 app.include_router(chat_router)
+app.include_router(research_run_router)
 
 # Global chat contact registry
 _chat_registry: Optional[ChatContactRegistry] = None
