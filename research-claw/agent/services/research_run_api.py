@@ -456,6 +456,33 @@ def fallback_survey(task: str, prepare: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def fallback_experiment_plan(task: str, survey: Dict[str, Any]) -> Dict[str, Any]:
+    concepts = survey.get("concepts") or tokenize_research_text(task)[:4]
+    metrics = survey.get("metrics") or ["faithfulness", "accuracy", "robustness"]
+    return {
+        "hypothesis": f"A focused experiment around {', '.join(map(str, concepts[:3]))} can reveal a measurable aha moment.",
+        "method": "Compare a baseline explanation method against a concept-aware or faithfulness-aware variant.",
+        "datasets": ["one small public benchmark selected from the survey"],
+        "metrics": metrics[:4],
+        "baselines": ["vanilla baseline", "strong post-hoc explanation baseline"],
+        "resources": "Single-GPU smoke test first; scale after proof of signal.",
+        "risks": ["survey-derived plan only; verify dataset availability", "metric may not capture causal faithfulness"],
+        "success_criteria": ["clear metric delta over baseline", "reproducible run configuration"],
+        "next_actions": ["choose dataset", "write minimal training/eval script", "run 1-seed smoke test"],
+        "rationale": "Fallback plan generated from Survey Agent outputs.",
+    }
+
+
+def format_plan_summary(plan: Dict[str, Any]) -> str:
+    hypothesis = str(plan.get("hypothesis") or "").strip()
+    method = str(plan.get("method") or "").strip()
+    if hypothesis and method:
+        return f"Planned experiment: {hypothesis[:120]} Method: {method[:100]}"
+    if hypothesis:
+        return f"Planned experiment: {hypothesis[:180]}"
+    return "Generated an experiment plan from Prepare and Survey Agent outputs."
+
+
 async def run_survey_agent(task: str, prepare: Dict[str, Any]) -> Dict[str, Any]:
     references = prepare.get("result", "")
     prompt = f"""
@@ -502,6 +529,64 @@ Focus on atomic concepts and experiment-relevant signals. Do not invent paper ti
             survey["_status"] = "llm"
     survey["elapsedMs"] = elapsed_ms
     return survey
+
+
+async def run_coding_plan_agent(task: str, prepare: Dict[str, Any], survey: Dict[str, Any]) -> Dict[str, Any]:
+    survey_json = json.dumps(
+        {k: v for k, v in survey.items() if k not in {"_raw", "elapsedMs"}},
+        ensure_ascii=False,
+        indent=2,
+    )
+    prompt = f"""
+You are Coding Plan Agent inside an AI research framework.
+Input research task:
+{task}
+
+Prepare Agent sources:
+{json.dumps(prepare.get("sources", []), ensure_ascii=False)}
+
+Survey Agent output:
+{survey_json[:5000]}
+
+Return ONLY compact JSON with keys:
+hypothesis: string,
+method: string,
+datasets: string[],
+metrics: string[],
+baselines: string[],
+resources: string,
+risks: string[],
+success_criteria: string[],
+next_actions: string[],
+rationale: string.
+Make the plan concrete enough for a Machine Learning Agent to implement a first iteration.
+"""
+    started = time.perf_counter()
+    provider = DynamicProviderProxy()
+    response = await provider.chat(
+        messages=[
+            {"role": "system", "content": "Return valid JSON only. Be concrete and implementation-oriented."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        max_tokens=1000,
+    )
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    if response.finish_reason == "error" or not response.content:
+        plan = fallback_experiment_plan(task, survey)
+        plan["_raw"] = response.content or "No LLM response"
+        plan["_status"] = "fallback"
+    else:
+        plan = extract_json_object(response.content)
+        if not plan:
+            plan = fallback_experiment_plan(task, survey)
+            plan["_raw"] = response.content
+            plan["_status"] = "fallback"
+        else:
+            plan["_raw"] = response.content
+            plan["_status"] = "llm"
+    plan["elapsedMs"] = elapsed_ms
+    return plan
 
 
 async def emit_goal_accept_steps(run: ResearchRun) -> None:
@@ -609,14 +694,65 @@ async def emit_goal_accept_steps(run: ResearchRun) -> None:
         },
     )
 
-    experiment_step = build_planning_steps()[2]
-    experiment_step.pop("delayMs", None)
-    await store.publish(run, {"type": "step", "step": experiment_step})
-    run.status = "waiting"
-    run.paused_on_step_id = experiment_step["id"]
     await store.publish(
         run,
-        {"type": "status", "status": "waiting", "pausedOnStepId": experiment_step["id"]},
+        {
+            "type": "step",
+            "step": {
+                "id": "experiment-plan",
+                "stageIndex": 2,
+                "title": "Coding Plan Agent preparing experiment design",
+                "summary": "Generating a concrete experiment plan from reference papers and survey concepts.",
+                "duration": "queued",
+                "status": "running",
+                "tool": tool(
+                    "Coding Plan Agent",
+                    {
+                        "task": run.task,
+                        "survey": {k: v for k, v in survey.items() if k not in {"_raw", "elapsedMs"}},
+                    },
+                    "Generating structured experiment plan.",
+                    "running",
+                ),
+                "output": {"kind": "experiment"},
+            },
+        },
+    )
+    plan = await run_coding_plan_agent(run.task, prepare, survey)
+    plan_output = json.dumps(
+        {k: v for k, v in plan.items() if k not in {"_raw", "elapsedMs"}},
+        ensure_ascii=False,
+        indent=2,
+    )
+    await store.update_step(
+        run,
+        "experiment-plan",
+        {
+            "status": "review",
+            "duration": format_duration(plan["elapsedMs"]),
+            "summary": format_plan_summary(plan),
+            "sources": prepare["sources"],
+            "tool": {
+                "status": "done",
+                "input": {
+                    "task": run.task,
+                    "survey": {k: v for k, v in survey.items() if k not in {"_raw", "elapsedMs"}},
+                },
+                "output": plan_output,
+                "sources": prepare["sources"],
+                "citations": survey.get("sources_used") or prepare["citations"],
+                "timeMs": plan["elapsedMs"],
+            },
+            "gate": True,
+            "gateLabel": "Approve experiment plan",
+            "gateHint": "Approve the plan before ML Agent writes and runs code.",
+        },
+    )
+    run.status = "waiting"
+    run.paused_on_step_id = "experiment-plan"
+    await store.publish(
+        run,
+        {"type": "status", "status": "waiting", "pausedOnStepId": "experiment-plan"},
     )
 
 
