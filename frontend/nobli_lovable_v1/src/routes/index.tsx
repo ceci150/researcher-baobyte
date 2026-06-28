@@ -53,6 +53,7 @@ function Index() {
   const [historyRefreshToken, setHistoryRefreshToken] = useState(0);
   const [selectedToolStepId, setSelectedToolStepId] = useState<string | undefined>();
   const savedRunIdsRef = useRef<Set<string>>(new Set());
+  const [pausedStepId, setPausedStepId] = useState<string | undefined>();
 
   const startRun = useCallback(async (t: string) => {
     setView("new");
@@ -118,6 +119,7 @@ function Index() {
     if (event.type === "status") {
       setRunStatus(event.status);
       setPaused(event.status === "waiting");
+      setPausedStepId(event.pausedOnStepId ?? undefined);
       setPending(event.status === "running");
       return;
     }
@@ -196,7 +198,13 @@ function Index() {
 
   const handleFollowUp = async (message: string) => {
     if (!runId) return;
-    await sendResearchFollowUp({ runId, message });
+    await sendResearchFollowUp({
+      runId,
+      message,
+      activeStepId: pausedStepId ?? selectedToolStepId ?? steps[steps.length - 1]?.id,
+      selectedToolStepId,
+      currentStage,
+    });
   };
 
   const maxStage = steps.reduce((m, s) => Math.max(m, s.stageIndex + 1), 0);
