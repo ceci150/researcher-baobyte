@@ -246,5 +246,13 @@
         "name": "activate_skill",
         "class": "core.tools.activate_skill.ActivateSkillTool",
         "enabled": true
+    },
+    {
+        "name": "selfgrow_plan",
+        "class": "agent.tools.selfgrow_plan.SelfGrowPlanTool",
+        "args": {
+            "tool_context": "{{tool_context}}"
+        },
+        "enabled": true
     }
 ]

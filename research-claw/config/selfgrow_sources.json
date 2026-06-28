@@ -1,0 +1,42 @@
+{
+    "_comment": "Self-grow 监控来源清单。selfgrow.watch 定时任务每天读取此清单，逐个抓取页面，发现新 feature 后推送给用户。可随时增删条目；改完需重启 gateway 使其生效（清单在任务注册时内联进 prompt）。type: github=代码仓库, article=文章/文档站。",
+    "enabled": true,
+    "sources": [
+        {
+            "name": "karpathy/autoresearch",
+            "type": "github",
+            "url": "https://github.com/karpathy/autoresearch",
+            "watch": "metric 驱动的自主实验迭代循环、propose-change/keep-or-revert 机制、LLM 提改动的 prompt 设计"
+        },
+        {
+            "name": "Recursive: First steps toward automated AI research",
+            "type": "article",
+            "url": "https://www.recursive.com/articles/first-steps-toward-automated-ai-research",
+            "watch": "自动化 AI 科研的整体框架、agent 分工、评测方式"
+        },
+        {
+            "name": "aiming-lab/AutoResearchClaw",
+            "type": "github",
+            "url": "https://github.com/aiming-lab/AutoResearchClaw",
+            "watch": "research agent 的工具链、论文写作/实验自动化能力、与本项目可对照的架构"
+        },
+        {
+            "name": "HKUDS/ai-researcher",
+            "type": "github",
+            "url": "https://github.com/hkuds/ai-researcher",
+            "watch": "端到端科研 agent、idea 生成、文献综述、写作能力"
+        },
+        {
+            "name": "Feynman",
+            "type": "article",
+            "url": "https://www.feynman.is/",
+            "watch": "产品形态、对外宣称的科研助手能力、可借鉴的交互/功能点"
+        },
+        {
+            "name": "DeepSeek AutoResearch framework",
+            "type": "article",
+            "url": "https://victorchen96.github.io/auto_research/framework.html",
+            "watch": "AutoResearch 框架设计、模块划分、写作与实验闭环"
+        }
+    ]
+}

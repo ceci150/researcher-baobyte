@@ -13,6 +13,7 @@
     "bash",
     "send_file",
     "project_manager",
-    "overleaf"
+    "overleaf",
+    "selfgrow_plan"
   ]
 }
