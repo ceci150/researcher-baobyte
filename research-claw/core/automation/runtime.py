@@ -63,6 +63,7 @@ class AutomationRuntime:
         await self.scheduler.start()
         self._running = True
         await self._bootstrap_all_projects()
+        await self._bootstrap_global_selfgrow()
         # Startup summary
         diag = self.scheduler.get_diagnostics()
         logger.info(
@@ -90,6 +91,53 @@ class AutomationRuntime:
                 continue
             project = Project(path.name, self.workspace)
             await self.bootstrap_project(project)
+
+    async def _bootstrap_global_selfgrow(self) -> None:
+        """Register the global Self-grow watch job once, anchored on the Default project.
+
+        Unlike per-paper radar jobs, this monitors research-claw's own evolution, so it
+        runs as a single global job. The source list is inlined into the prompt at
+        registration time (read from config/selfgrow_sources.json), so editing the list
+        requires a gateway restart.
+        """
+        from core.automation.selfgrow import (
+            SELFGROW_JOB_ID,
+            SELFGROW_PROJECT_ID,
+            build_selfgrow_job,
+            load_sources,
+        )
+
+        try:
+            enabled, sources = load_sources()
+            project = Project(SELFGROW_PROJECT_ID, self.workspace)
+            store = FSAutomationStore(project)
+            key = self._sched_key(project.id, SELFGROW_JOB_ID)
+
+            if not enabled:
+                # Keep the on-disk job (if any) but ensure it isn't scheduled.
+                self.scheduler.unschedule_job(key)
+                logger.info("Self-grow watch disabled via config; not scheduled.")
+                return
+
+            existing = store.get_job(SELFGROW_JOB_ID)
+            job = build_selfgrow_job(timezone="UTC", sources=sources)
+            # Preserve user's enabled toggle if they disabled it manually.
+            if existing and existing.managed_by == "system":
+                job.enabled = existing.enabled
+            store.upsert_job(job)
+
+            if job.enabled:
+                self.scheduler.schedule_job(
+                    key, job, lambda j, p=project: self._run_and_log(p, j, "schedule")
+                )
+                keys = self._project_job_keys.setdefault(project.id, set())
+                keys.add(key)
+                logger.info(
+                    f"Self-grow watch scheduled (cron='{job.schedule.cron}', "
+                    f"sources={len(sources)})."
+                )
+        except Exception as e:
+            logger.warning(f"Self-grow bootstrap failed: {e}")
 
     def _unschedule_project(self, project_id: str) -> None:
         old_keys = self._project_job_keys.get(project_id, set())
