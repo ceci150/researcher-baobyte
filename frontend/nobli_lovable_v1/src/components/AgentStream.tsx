@@ -6,6 +6,7 @@ import { Check, MessageSquare, Pencil, X } from "lucide-react";
 import {
   AbstractCard,
   ApprovalOpportunitiesCard,
+  CodeArtifactsCard,
   ConferencesCard,
   ExperimentCard,
   IterationCard,
@@ -157,6 +158,7 @@ export function AgentStream({
                     />
                   )}
                   {s.output.kind === "experiment" && <ExperimentCard step={s} />}
+                  {s.output.kind === "artifacts" && <CodeArtifactsCard step={s} />}
                   {s.output.kind === "iteration" && <IterationCard step={s} />}
                   {s.output.kind === "abstract" && <AbstractCard step={s} />}
                   {s.output.kind === "publish" && <PublishCard />}

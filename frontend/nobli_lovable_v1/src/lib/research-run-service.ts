@@ -25,7 +25,7 @@ export type ResearchRunEvent =
       message: string;
     };
 
-const API_BASE = (import.meta.env.VITE_RESEARCH_API_URL as string | undefined)?.replace(/\/$/, "") ??
+export const API_BASE = (import.meta.env.VITE_RESEARCH_API_URL as string | undefined)?.replace(/\/$/, "") ??
   "http://localhost:18790";
 
 function websocketBase() {

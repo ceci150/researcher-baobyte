@@ -11,12 +11,15 @@ import {
   PLATFORMS,
 } from "@/lib/mock-data";
 import type { Step } from "@/lib/mock-data";
+import { API_BASE } from "@/lib/research-run-service";
 import { cn } from "@/lib/utils";
 import {
   Bell,
   BookOpen,
+  Braces,
   Check,
   ChevronRight,
+  Code2,
   Download,
   ExternalLink,
   FileText,
@@ -554,6 +557,139 @@ export function ExperimentCard({ step }: { step?: Step }) {
   );
 }
 
+function artifactHref(url?: string) {
+  if (!url) return undefined;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  return `${API_BASE}${url}`;
+}
+
+function summarizeResults(results: unknown): { label: string; value: string }[] {
+  if (!results || typeof results !== "object") return [];
+  const rows: { label: string; value: string }[] = [];
+  const visit = (prefix: string, value: unknown, depth: number) => {
+    if (rows.length >= 10 || depth > 2) return;
+    if (value == null) return;
+    if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
+      rows.push({ label: prefix, value: String(value) });
+      return;
+    }
+    if (Array.isArray(value)) {
+      rows.push({ label: prefix, value: `${value.length} item${value.length === 1 ? "" : "s"}` });
+      return;
+    }
+    if (typeof value === "object") {
+      for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+        visit(prefix ? `${prefix}.${key}` : key, nested, depth + 1);
+      }
+    }
+  };
+  visit("", results, 0);
+  return rows;
+}
+
+export function CodeArtifactsCard({ step }: { step?: Step }) {
+  const artifacts = step?.artifacts;
+  const resultsRows = summarizeResults(artifacts?.results);
+  const primaryCode = artifacts?.codeFiles?.find((file) => file.path.endsWith("run_experiment.py")) ?? artifacts?.codeFiles?.[0];
+
+  return (
+    <Card
+      title="Code artifacts"
+      subtitle={
+        artifacts?.found
+          ? `${artifacts.projectId ?? "workspace"} · ${artifacts.resultsPath ?? "runtime artifacts"}`
+          : "No executed experiment artifacts found yet"
+      }
+      headerRight={
+        <span className="rounded-full bg-[var(--color-surface-2)] px-2.5 py-0.5 text-[10.5px] text-foreground">
+          {artifacts?.found ? "real workspace data" : "blueprint only"}
+        </span>
+      }
+    >
+      {!artifacts?.found ? (
+        <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3 text-[12px] leading-relaxed text-ink-muted">
+          {artifacts?.message ?? "The ML Agent has prepared an implementation blueprint, but no executed code, results.json, figures, or PDF were discovered in the Research Claw workspace."}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+            <ArtifactMetric label="Code files" value={artifacts.codeFiles.length} />
+            <ArtifactMetric label="Figures" value={artifacts.figures.length} />
+            <ArtifactMetric label="PDFs" value={artifacts.pdfs.length} />
+          </div>
+
+          {resultsRows.length > 0 && (
+            <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3">
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+                <Braces className="h-3.5 w-3.5" />
+                results.json
+              </div>
+              <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
+                {resultsRows.map((row) => (
+                  <div key={row.label} className="flex items-start justify-between gap-3 rounded-md bg-card px-2 py-1.5 text-[11.5px]">
+                    <span className="min-w-0 truncate text-ink-muted">{row.label || "result"}</span>
+                    <span className="font-medium text-foreground">{row.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {primaryCode && (
+            <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
+                  <Code2 className="h-3.5 w-3.5" />
+                  <span className="truncate">{primaryCode.path}</span>
+                </div>
+                {primaryCode.url && (
+                  <a
+                    href={artifactHref(primaryCode.url)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2 py-0.5 text-[10.5px] hover:bg-[var(--color-surface-2)]"
+                  >
+                    Open <ExternalLink className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+              <pre className="max-h-[220px] overflow-auto rounded-md bg-[#111827] p-3 text-[10.5px] leading-relaxed text-slate-100">
+                {primaryCode.snippet ?? "No preview available."}
+              </pre>
+            </div>
+          )}
+
+          {(artifacts.figures.length > 0 || artifacts.pdfs.length > 0) && (
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              {[...artifacts.figures, ...artifacts.pdfs].slice(0, 8).map((file) => (
+                <a
+                  key={file.path}
+                  href={artifactHref(file.url)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between gap-2 rounded-lg border border-border bg-card px-3 py-2 text-[11.5px] hover:bg-[var(--color-surface)]"
+                >
+                  <span className="min-w-0 truncate">{file.path}</span>
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function ArtifactMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-border bg-[var(--color-surface)] p-2.5">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">{label}</div>
+      <div className="mt-1 text-[18px] font-semibold text-foreground">{value}</div>
+    </div>
+  );
+}
+
 type WritingDraftOutput = {
   title?: string;
   abstract?: string;
@@ -725,22 +861,8 @@ function parseJudgeFeedback(output?: string): JudgeFeedbackOutput | undefined {
 }
 
 export function IterationCard({ step }: { step?: Step }) {
-  const w = 460;
-  const h = 160;
-  const padL = 32;
-  const padR = 12;
-  const padT = 12;
-  const padB = 24;
-  const xs = ITERATIONS.map((p) => p.x);
-  const xMin = Math.min(...xs);
-  const xMax = Math.max(...xs);
-  const yMin = 0;
-  const yMax = 1;
-  const sx = (x: number) => padL + ((x - xMin) / (xMax - xMin)) * (w - padL - padR);
-  const sy = (y: number) => padT + (1 - (y - yMin) / (yMax - yMin)) * (h - padT - padB);
-  const path = ITERATIONS.map((p, i) => `${i === 0 ? "M" : "L"}${sx(p.x)},${sy(p.y)}`).join(" ");
-  const targetY = sy(0.7);
   const feedback = parseJudgeFeedback(step?.tool?.output);
+  const artifacts = step?.artifacts;
 
   return (
     <Card
@@ -758,60 +880,26 @@ export function IterationCard({ step }: { step?: Step }) {
         </span>
       }
     >
-      <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3">
-        <svg viewBox={`0 0 ${w} ${h}`} className="h-[160px] w-full">
-          {[0, 0.25, 0.5, 0.75, 1].map((g) => (
-            <line
-              key={g}
-              x1={padL}
-              x2={w - padR}
-              y1={sy(g)}
-              y2={sy(g)}
-              stroke="var(--color-border)"
-              strokeDasharray={g === 0 ? "" : "2 3"}
-            />
-          ))}
-          <line
-            x1={padL}
-            x2={w - padR}
-            y1={targetY}
-            y2={targetY}
-            stroke="var(--color-foreground)"
-            strokeDasharray="4 3"
-            opacity="0.5"
-          />
-          <text x={w - padR} y={targetY - 3} textAnchor="end" fontSize="9" fill="var(--color-ink-muted)">
-            target 0.70
-          </text>
-          <path d={path} fill="none" stroke="var(--color-foreground)" strokeWidth="1.5" />
-          {ITERATIONS.map((p) => (
-            <g key={p.label}>
-              <circle cx={sx(p.x)} cy={sy(p.y)} r="3.5" fill="var(--color-foreground)" />
-              <text
-                x={sx(p.x)}
-                y={h - 8}
-                textAnchor="middle"
-                fontSize="9.5"
-                fill="var(--color-ink-muted)"
-              >
-                {p.label}
-              </text>
-            </g>
-          ))}
-          {[0, 0.5, 1].map((g) => (
-            <text
-              key={g}
-              x={padL - 4}
-              y={sy(g) + 3}
-              textAnchor="end"
-              fontSize="9"
-              fill="var(--color-ink-muted)"
-            >
-              {g.toFixed(1)}
-            </text>
-          ))}
-        </svg>
-      </div>
+      {artifacts?.found ? (
+        <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+            Runtime artifacts
+          </div>
+          <div className="mt-1 text-[12px] leading-relaxed text-foreground">
+            Loaded real workspace artifacts from {artifacts.projectId}
+            {artifacts.resultsPath ? ` (${artifacts.resultsPath})` : ""}. Metric plotting for this JSON schema is not mapped yet, so no synthetic curve is shown.
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-border bg-[var(--color-surface)] p-3">
+          <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+            Blueprint review only
+          </div>
+          <div className="mt-1 text-[12px] leading-relaxed text-foreground">
+            No executed experiment metrics were discovered. The judge feedback below reviews the ML blueprint and readiness risks, not completed experimental evidence.
+          </div>
+        </div>
+      )}
 
       <div className="mt-3 space-y-1.5">
         <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">

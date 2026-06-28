@@ -591,3 +591,48 @@ Implement the smallest usable contract first:
 4. optional `GET /api/runs/:runId/stream`
 
 That is enough to replace the current scripted demo flow without redesigning the UI.
+
+## Runtime Experiment Artifacts
+
+The current Research Claw gateway exposes real workspace artifacts separately from the ML blueprint.
+
+Endpoints:
+
+- `GET /api/research-artifacts?project_id=SamplingStudy`
+- `GET /api/research-artifacts/file?project_id=SamplingStudy&path=code/results.json`
+
+The ML Agent step also includes the same payload as `step.artifacts` when the workflow reaches `ml-agent`.
+
+```ts
+type ExperimentArtifacts = {
+  found: boolean;
+  projectId?: string;
+  root?: string;
+  lastModified?: number;
+  resultsPath?: string;
+  results?: unknown;
+  codeFiles: Array<{
+    path: string;
+    size?: number;
+    url?: string;
+    snippet?: string;
+  }>;
+  figures: Array<{
+    path: string;
+    size?: number;
+    url?: string;
+  }>;
+  pdfs: Array<{
+    path: string;
+    size?: number;
+    url?: string;
+  }>;
+  message?: string;
+};
+```
+
+Frontend behavior:
+
+- If `found === true`, render the Code Artifacts panel from `codeFiles`, `results`, `figures`, and `pdfs`.
+- If `found === false`, show blueprint-only status and do not render synthetic experiment metrics.
+- Judge feedback currently reviews the ML blueprint. It should only be treated as a review of completed experiments when `step.artifacts.found === true` and a metric mapper has converted `results.json` into a specific plotted series.
