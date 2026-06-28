@@ -554,6 +554,36 @@ export function ExperimentCard({ step }: { step?: Step }) {
   );
 }
 
+type WritingDraftOutput = {
+  title?: string;
+  abstract?: string;
+  outline?: string[];
+  claims?: string[];
+  limitations?: string[];
+  next_writing_actions?: string[];
+  rationale?: string;
+};
+
+function parseWritingDraft(output?: string): WritingDraftOutput | undefined {
+  if (!output) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(output);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const raw = parsed as Record<string, unknown>;
+    return {
+      title: typeof raw.title === "string" ? raw.title : undefined,
+      abstract: typeof raw.abstract === "string" ? raw.abstract : undefined,
+      outline: stringArray(raw.outline),
+      claims: stringArray(raw.claims),
+      limitations: stringArray(raw.limitations),
+      next_writing_actions: stringArray(raw.next_writing_actions),
+      rationale: typeof raw.rationale === "string" ? raw.rationale : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 function MiniBar({ label, v, color }: { label: string; v: number; color: string }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -771,12 +801,15 @@ export function IterationCard() {
   );
 }
 
-export function AbstractCard() {
+export function AbstractCard({ step }: { step?: Step }) {
   const [style, setStyle] = useState("Concise conference");
   const [exported, setExported] = useState<string | null>(null);
+  const draft = parseWritingDraft(step?.tool?.output);
+  const abstract = draft?.abstract ?? ABSTRACT_DRAFT;
+  const wordCount = abstract.trim().split(/\s+/).filter(Boolean).length;
 
   return (
-    <Card title="Writing studio · abstract" subtitle="Draft from notes + experiment results">
+    <Card title="Writing studio · abstract" subtitle={draft?.title ?? "Draft from notes + experiment results"}>
       <div className="mb-2 flex flex-wrap gap-1">
         {ABSTRACT_STYLES.map((s) => (
           <button
@@ -797,11 +830,11 @@ export function AbstractCard() {
       <div className="rounded-lg border border-border bg-[var(--color-surface)]">
         <div className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11px] text-ink-muted">
           <span>Abstract · v1 · {style}</span>
-          <span>178 words</span>
+          <span>{wordCount} words</span>
         </div>
         <div className="space-y-2 p-3 text-[12.5px] leading-relaxed text-foreground">
           <p className="rounded border border-transparent p-1.5 hover:border-border">
-            {ABSTRACT_DRAFT}
+            {abstract}
           </p>
           <div className="flex flex-wrap gap-1">
             {["Approve paragraph", "Rewrite more academic", "Make clearer", "Add stronger hook", "Shorten"].map(
@@ -812,6 +845,24 @@ export function AbstractCard() {
           </div>
         </div>
       </div>
+
+      {draft && (
+        <div className="mt-3 grid grid-cols-1 gap-1.5 md:grid-cols-2">
+          <ListPanel title="Claims" items={draft.claims} fallback="No claims returned yet." />
+          <ListPanel title="Limitations" items={draft.limitations} fallback="No limitations returned yet." />
+          <ListPanel title="Outline" items={draft.outline} fallback="No outline returned yet." />
+          <ListPanel title="Next actions" items={draft.next_writing_actions} fallback="No writing actions returned yet." />
+        </div>
+      )}
+
+      {draft?.rationale && (
+        <div className="mt-3 rounded-lg border border-border bg-[var(--color-surface)] p-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
+            Agent rationale
+          </div>
+          <div className="mt-1 text-[11.5px] leading-snug text-foreground">{draft.rationale}</div>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-1.5">
         <Btn primary onClick={() => setExported("PDF prepared · 1 page · ready to download.")}>
@@ -831,6 +882,22 @@ export function AbstractCard() {
         </div>
       )}
     </Card>
+  );
+}
+
+function ListPanel({ title, items, fallback }: { title: string; items?: string[]; fallback: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-2.5">
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">{title}</div>
+      <ul className="mt-1.5 space-y-1 text-[11.5px] leading-snug text-foreground">
+        {(items && items.length > 0 ? items : [fallback]).map((item) => (
+          <li key={item} className="flex gap-1.5">
+            <span className="mt-[0.45em] h-1 w-1 shrink-0 rounded-full bg-ink-muted" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
